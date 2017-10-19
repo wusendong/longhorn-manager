@@ -15,6 +15,7 @@ import (
 	"github.com/rancher/longhorn-manager/manager"
 	"github.com/rancher/longhorn-manager/orchestrator"
 	"github.com/rancher/longhorn-manager/orchestrator/docker"
+	"github.com/rancher/longhorn-manager/orchestrator/k8s"
 	"github.com/rancher/longhorn-manager/types"
 )
 
@@ -27,6 +28,7 @@ const (
 	FlagETCDPrefix   = "etcd-prefix"
 
 	FlagDockerNetwork = "docker-network"
+	FlagK8sNamespacer = "k8s-namespace"
 
 	EnvEngineImage = "LONGHORN_ENGINE_IMAGE"
 )
@@ -51,6 +53,10 @@ func main() {
 			Name:  FlagOrchestrator,
 			Usage: "Choose orchestrator: docker",
 			Value: "docker",
+		},
+		cli.StringFlag{
+			Name:  FlagK8sNamespacer,
+			Usage: "Choose k8s namespace: default",
 		},
 
 		cli.StringFlag{
@@ -104,6 +110,17 @@ func RunManager(c *cli.Context) error {
 			Network:     c.String(FlagDockerNetwork),
 		}
 		docker, err := docker.NewDockerOrchestrator(cfg)
+		if err != nil {
+			return err
+		}
+		forwarder = orchestrator.NewForwarder(docker)
+		orch = forwarder
+	} else if orchName == "k8s" {
+		cfg := &k8s.Config{
+			EngineImage: engineImage,
+			Namespace:   c.String(FlagK8sNamespacer),
+		}
+		docker, err := k8s.NewDockerOrchestrator(cfg)
 		if err != nil {
 			return err
 		}
