@@ -2,6 +2,7 @@ package util
 
 import (
 	"crypto/md5"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -131,7 +132,7 @@ func WaitForDevice(dev string, timeout int) error {
 		}
 		time.Sleep(1 * time.Second)
 	}
-	return fmt.Errorf("timeout waiting for %v", dev)
+	return fmt.Errorf("timeout waiting for device %v", dev)
 }
 
 func RandomID() string {
@@ -164,7 +165,7 @@ func WaitForAPI(url string, timeout int) error {
 		}
 		time.Sleep(1 * time.Second)
 	}
-	return fmt.Errorf("timeout waiting for %v", url)
+	return fmt.Errorf("timeout waiting for url %v", url)
 }
 
 func Now() string {
@@ -230,4 +231,9 @@ func GetBackupID(backupURL string) (string, error) {
 		return "", fmt.Errorf("Invalid name parsed, got %v and %v", backupName, volumeName)
 	}
 	return backupName, nil
+}
+
+func PrintJSON(obj interface{}) {
+	b, _ := json.MarshalIndent(obj, "", "    ")
+	fmt.Printf("%s\n", b)
 }

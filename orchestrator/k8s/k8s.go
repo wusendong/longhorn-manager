@@ -13,6 +13,7 @@ import (
 	"github.com/pkg/errors"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -56,7 +57,11 @@ func NewDockerOrchestrator(cfg *Config) (*K8s, error) {
 		return nil, fmt.Errorf("missing required parameter EngineImage")
 	}
 	if cfg.Namespace == "" {
-		cfg.Namespace = apiv1.NamespaceDefault
+		if namespace := os.Getenv("MY_POD_NAMESPACE"); namespace != "" {
+			cfg.Namespace = namespace
+		} else {
+			cfg.Namespace = apiv1.NamespaceDefault
+		}
 	}
 	docker := &K8s{
 		EngineImage: cfg.EngineImage,
@@ -92,6 +97,11 @@ func NewDockerOrchestrator(cfg *Config) (*K8s, error) {
 }
 
 func (d *K8s) updateNetwork() error {
+
+	if ip := os.Getenv("MY_POD_IP"); ip != "" {
+		d.IP = ip
+		return nil
+	}
 	containerID := os.Getenv("HOSTNAME")
 
 	pod, err := d.cli.Core().Pods(d.Namespace).Get(containerID, metav1.GetOptions{})
@@ -112,9 +122,14 @@ func (d *K8s) updateCurrentNode() error {
 		IP:               d.IP,
 		OrchestratorPort: types.DefaultOrchestratorPort,
 	}
-	node.Name, err = os.Hostname()
-	if err != nil {
-		return err
+
+	if nodename := os.Getenv("MY_NODE_NAME"); nodename != "" {
+		node.Name = nodename
+	} else {
+		node.Name, err = os.Hostname()
+		if err != nil {
+			return err
+		}
 	}
 
 	uuid, err := ioutil.ReadFile(hostUUIDFile)
@@ -168,12 +183,15 @@ func (d *K8s) CreateController(req *orchestrator.Request) (instance *orchestrato
 
 	podClient := d.cli.Core().Pods(d.Namespace)
 	pod := &apiv1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: req.InstanceName,
+		},
 		Spec: apiv1.PodSpec{
 			Containers: []apiv1.Container{
 				{
-					Name:            req.InstanceName,
-					Image:           d.EngineImage,
-					SecurityContext: &apiv1.SecurityContext{Privileged: boolPtr(true)},
+					Name:  req.InstanceName,
+					Image: d.EngineImage,
+					Args:  cmd,
 					VolumeMounts: []apiv1.VolumeMount{
 						apiv1.VolumeMount{
 							Name:      "longhorn-controller-claim0",
@@ -184,6 +202,8 @@ func (d *K8s) CreateController(req *orchestrator.Request) (instance *orchestrato
 							MountPath: "/host/proc",
 						},
 					},
+					SecurityContext:          &apiv1.SecurityContext{Privileged: boolPtr(true)},
+					TerminationMessagePolicy: apiv1.TerminationMessageFallbackToLogsOnError,
 				},
 			},
 			Volumes: []apiv1.Volume{
@@ -200,6 +220,8 @@ func (d *K8s) CreateController(req *orchestrator.Request) (instance *orchestrato
 					},
 				},
 			},
+			TerminationGracePeriodSeconds: int64Ptr(2),
+			RestartPolicy:                 apiv1.RestartPolicyNever,
 		},
 	}
 
@@ -267,18 +289,23 @@ func (d *K8s) CreateReplica(req *orchestrator.Request) (instance *orchestrator.I
 	cmd = append(cmd, "/volume")
 	podClient := d.cli.Core().Pods(d.Namespace)
 	pod := &apiv1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: req.InstanceName,
+		},
 		Spec: apiv1.PodSpec{
 			Containers: []apiv1.Container{
 				{
-					Name:            req.InstanceName,
-					Image:           d.EngineImage,
-					SecurityContext: &apiv1.SecurityContext{Privileged: boolPtr(true)},
+					Name:  req.InstanceName,
+					Image: d.EngineImage,
+					Args:  cmd,
 					VolumeMounts: []apiv1.VolumeMount{
 						apiv1.VolumeMount{
 							Name:      "longhorn-replica-claim0",
 							MountPath: "/volume",
 						},
 					},
+					SecurityContext:          &apiv1.SecurityContext{Privileged: boolPtr(true)},
+					TerminationMessagePolicy: apiv1.TerminationMessageFallbackToLogsOnError,
 				},
 			},
 			Volumes: []apiv1.Volume{
@@ -289,6 +316,8 @@ func (d *K8s) CreateReplica(req *orchestrator.Request) (instance *orchestrator.I
 					},
 				},
 			},
+			TerminationGracePeriodSeconds: int64Ptr(2),
+			RestartPolicy:                 apiv1.RestartPolicyNever,
 		},
 	}
 	// Create Pod
@@ -355,7 +384,7 @@ func (d *K8s) InspectInstance(req *orchestrator.Request) (instance *orchestrator
 
 	pod, err := d.cli.Core().Pods(d.Namespace).Get(req.InstanceID, metav1.GetOptions{})
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
 
 	instance = &orchestrator.Instance{
@@ -388,9 +417,15 @@ func (d *K8s) StartInstance(req *orchestrator.Request) (instance *orchestrator.I
 			d.currentNode.ID)
 	}
 
-	// if err := d.cli.ContainerStart(context.Background(), req.InstanceID, dTypes.ContainerStartOptions{}); err != nil {
-	// 	return nil, err
-	// }
+	fmt.Printf("waitting pod name: %v\n", req.InstanceID)
+	pod, err := d.cli.Core().Pods(d.Namespace).Get(req.InstanceID, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if err = d.WaitForPodsReady(pod); err != nil {
+		return nil, err
+	}
+
 	return d.InspectInstance(req)
 }
 
@@ -407,14 +442,6 @@ func (d *K8s) StopInstance(req *orchestrator.Request) (instance *orchestrator.In
 			d.currentNode.ID)
 	}
 
-	// d.cli.Core().Pods(d.Namespace).Update(pod)
-	// Docker after v1.12 may lost SIGTERM to container if start/stop is too
-	// quick, add a little delay to help
-	// time.Sleep(GraceStopTimeout)
-	// if err := d.cli.ContainerStop(context.Background(),
-	// 	req.InstanceID, &ContainerStopTimeout); err != nil {
-	// 	return nil, err
-	// }
 	return d.InspectInstance(req)
 }
 
@@ -435,4 +462,35 @@ func (d *K8s) DeleteInstance(req *orchestrator.Request) (err error) {
 }
 
 func int32Ptr(i int32) *int32 { return &i }
+func int64Ptr(i int64) *int64 { return &i }
 func boolPtr(i bool) *bool    { return &i }
+
+// WaitForPodsReady waits for a selection of Pods to be running and each
+// container to pass its readiness check.
+func (d *K8s) WaitForPodsReady(p *apiv1.Pod) error {
+	return wait.Poll(time.Second, 30*time.Second, func() (bool, error) {
+		pod, err := d.cli.Core().Pods(d.Namespace).Get(p.GetName(), metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		return PodRunningAndReady(pod)
+	})
+}
+
+// PodRunningAndReady returns whether a pod is running and each container has
+// passed it's ready state.
+func PodRunningAndReady(pod *apiv1.Pod) (bool, error) {
+	switch pod.Status.Phase {
+	case apiv1.PodFailed, apiv1.PodSucceeded:
+		return false, fmt.Errorf("pod completed")
+	case apiv1.PodRunning:
+		for _, cond := range pod.Status.Conditions {
+			if cond.Type != apiv1.PodReady {
+				continue
+			}
+			return cond.Status == apiv1.ConditionTrue, nil
+		}
+		return false, fmt.Errorf("pod ready condition not found")
+	}
+	return false, nil
+}
