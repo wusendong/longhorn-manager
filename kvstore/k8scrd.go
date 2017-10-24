@@ -2,19 +2,24 @@ package kvstore
 
 import (
 	"encoding/json"
-	"fmt"
+	"strings"
 
-	"github.com/rancher/longhorn-manager/client/monitoring"
+	"github.com/rancher/longhorn-manager/types"
+	"github.com/rancher/longhorn-manager/util"
 
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
 	eCli "github.com/coreos/etcd/client"
+	crdCli "github.com/rancher/longhorn-manager/client"
+	lv1 "github.com/rancher/longhorn-manager/client/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/rest"
 
 	extensionsobj "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 type CRDBackend struct {
@@ -22,60 +27,102 @@ type CRDBackend struct {
 
 	kapi eCli.KeysAPI
 
-	crdcli *apiextensionsclient.Clientset
-	mcli   *monitoring.Clientset
+	crdclient *apiextensionsclient.Clientset
+	lcli      *crdCli.Clientset
+	namespace string
+	prefix    string
 }
 
-func NewCRDBackend(cfg *rest.Config) (*CRDBackend, error) {
-
-	// TODO: create crds first, and create a crd client for each resources
+func NewCRDBackend(namespace string, cfg *rest.Config) (*CRDBackend, error) {
 	crdclient, err := apiextensionsclient.NewForConfig(cfg)
 	if err != nil {
-		return nil, errors.Wrap(err, "instantiating apiextensions client failed")
+		return nil, err
 	}
-
-	volumeCRD := NewLonghornVolumeCustomResourceDefinition(nil)
-	crdclient.ApiextensionsV1beta1().CustomResourceDefinitions().Create(volumeCRD)
-
-	mclient, err := monitoring.NewForConfig(Group, cfg)
+	lcli, err := crdCli.NewForConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 	backend := &CRDBackend{
-		crdcli: crdclient,
-		mcli:   mclient,
+		crdclient: crdclient,
+		lcli:      lcli,
+		namespace: namespace,
 	}
-
+	if err := backend.ensureCRD(); err != nil {
+		return nil, err
+	}
 	return backend, nil
 }
 
+func (s *CRDBackend) ensureCRD() error {
+	listFuncs := []func(opts metav1.ListOptions) (runtime.Object, error){
+		s.lcli.LonghornV1().Settings(s.namespace).List,
+		s.lcli.LonghornV1().Volumes(s.namespace).List,
+	}
+	exists, err := util.CrdExists(listFuncs...)
+	if err == nil && exists {
+		return nil
+	}
+
+	crds := []*extensionsobj.CustomResourceDefinition{
+		lv1.NewLonghornSettingCustomResourceDefinition(lv1.GetLonghornLables()),
+		lv1.NewLonghornVolumeCustomResourceDefinition(lv1.GetLonghornLables()),
+	}
+
+	for _, crd := range crds {
+		if _, err = s.crdclient.ApiextensionsV1beta1().CustomResourceDefinitions().Create(crd); err != nil && !apierrors.IsAlreadyExists(err) {
+			return errors.Wrapf(err, "Creating CRD: %s", crd.Spec.Names.Kind)
+		}
+	}
+
+	return util.WaitForCRDReady(listFuncs...)
+}
+
+func (s *CRDBackend) trimPrefix(key string) string {
+	return strings.TrimPrefix(key, s.prefix)
+}
+
+var (
+// volumebaseRegx = regx.
+)
+
 func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
-	value, err := json.Marshal(obj)
-	if err != nil {
-		return 0, err
+	key = s.trimPrefix(key)
+
+	if key == keySettings {
+		if setting, err := lv1.ToSetting(obj); err != nil {
+			return 0, err
+		} else if _, err := s.lcli.LonghornV1().Settings(s.namespace).Create(setting); err != nil {
+			return 0, err
+		}
+	} else if strings.HasPrefix(key, keyVolumes+"/vol1"+"/base") {
+
+	} else if strings.HasPrefix(key, keyNodes) {
+		// do nothing cause we just use all k8s nodes
 	}
-	resp, err := s.kapi.Create(context.Background(), key, string(value))
-	if err != nil {
-		return 0, err
-	}
-	return resp.Node.ModifiedIndex, nil
+
+	return 0, nil
 }
 
 func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, error) {
-	if index == 0 {
-		return 0, fmt.Errorf("kvstore index cannot be 0")
+	if key == keySettings {
+		setting, err := s.lcli.LonghornV1().Settings(s.namespace).Get(keySettings, metav1.GetOptions{})
+		if err != nil {
+			return 0, err
+		}
+		info, ok := obj.(types.SettingsInfo)
+		if !ok {
+			return 0, errors.Errorf("Mismatch type: %T", obj)
+		}
+		setting.Spec.BackupTarget = info.BackupTarget
+		if _, err := s.lcli.LonghornV1().Settings(s.namespace).Update(setting); err != nil {
+			return 0, err
+		}
+	} else if strings.HasPrefix(key, keyNodes) {
+
+	} else if strings.HasPrefix(key, keyNodes) {
+		// do nothing cause we just use all k8s nodes
 	}
-	value, err := json.Marshal(obj)
-	if err != nil {
-		return 0, err
-	}
-	resp, err := s.kapi.Set(context.Background(), key, string(value), &eCli.SetOptions{
-		PrevIndex: index,
-	})
-	if err != nil {
-		return 0, err
-	}
-	return resp.Node.ModifiedIndex, nil
+	return 0, nil
 }
 
 func (s *CRDBackend) IsNotFoundError(err error) bool {

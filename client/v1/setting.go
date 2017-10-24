@@ -32,39 +32,39 @@ import (
 
 // constants for longhorh crd
 const (
-	LonghornVolumesKind = "LonghornVolume"
-	LonghornVolumeName  = "longhorn-volumes"
+	LonghornSettingsKind = "LonghornSetting"
+	LonghornSettingName  = "longhorn-settings"
 )
 
-type VolumesGetter interface {
-	Volumes(namespace string) VolumeInterface
+type SettingsGetter interface {
+	Settings(namespace string) SettingInterface
 }
 
-var _ VolumeInterface = &volumes{}
+var _ SettingInterface = &settings{}
 
-type VolumeInterface interface {
-	Create(*Volume) (*Volume, error)
-	Get(name string, opts metav1.GetOptions) (*Volume, error)
-	Update(*Volume) (*Volume, error)
+type SettingInterface interface {
+	Create(*Setting) (*Setting, error)
+	Get(name string, opts metav1.GetOptions) (*Setting, error)
+	Update(*Setting) (*Setting, error)
 	Delete(name string, options *metav1.DeleteOptions) error
 	List(opts metav1.ListOptions) (runtime.Object, error)
 	Watch(opts metav1.ListOptions) (watch.Interface, error)
 	DeleteCollection(dopts *metav1.DeleteOptions, lopts metav1.ListOptions) error
 }
 
-type volumes struct {
+type settings struct {
 	restClient rest.Interface
 	client     *dynamic.ResourceClient
 	ns         string
 }
 
-func newVolumes(r rest.Interface, c *dynamic.Client, namespace string) *volumes {
-	return &volumes{
+func newSettings(r rest.Interface, c *dynamic.Client, namespace string) *settings {
+	return &settings{
 		r,
 		c.Resource(
 			&metav1.APIResource{
-				Kind:       LonghornVolumesKind,
-				Name:       LonghornVolumeName,
+				Kind:       LonghornSettingsKind,
+				Name:       LonghornSettingName,
 				Namespaced: true,
 			},
 			namespace,
@@ -73,8 +73,8 @@ func newVolumes(r rest.Interface, c *dynamic.Client, namespace string) *volumes 
 	}
 }
 
-func (a *volumes) Create(o *Volume) (*Volume, error) {
-	ua, err := UnstructuredFromVolume(o)
+func (a *settings) Create(o *Setting) (*Setting, error) {
+	ua, err := UnstructuredFromSetting(o)
 	if err != nil {
 		return nil, err
 	}
@@ -84,19 +84,19 @@ func (a *volumes) Create(o *Volume) (*Volume, error) {
 		return nil, err
 	}
 
-	return VolumeFromUnstructured(ua)
+	return SettingFromUnstructured(ua)
 }
 
-func (a *volumes) Get(name string, opts metav1.GetOptions) (*Volume, error) {
+func (a *settings) Get(name string, opts metav1.GetOptions) (*Setting, error) {
 	obj, err := a.client.Get(name, opts)
 	if err != nil {
 		return nil, err
 	}
-	return VolumeFromUnstructured(obj)
+	return SettingFromUnstructured(obj)
 }
 
-func (a *volumes) Update(o *Volume) (*Volume, error) {
-	ua, err := UnstructuredFromVolume(o)
+func (a *settings) Update(o *Setting) (*Setting, error) {
+	ua, err := UnstructuredFromSetting(o)
 	if err != nil {
 		return nil, err
 	}
@@ -112,14 +112,14 @@ func (a *volumes) Update(o *Volume) (*Volume, error) {
 		return nil, err
 	}
 
-	return VolumeFromUnstructured(ua)
+	return SettingFromUnstructured(ua)
 }
 
-func (a *volumes) Delete(name string, options *metav1.DeleteOptions) error {
+func (a *settings) Delete(name string, options *metav1.DeleteOptions) error {
 	return a.client.Delete(name, options)
 }
 
-func (a *volumes) List(opts metav1.ListOptions) (runtime.Object, error) {
+func (a *settings) List(opts metav1.ListOptions) (runtime.Object, error) {
 	l, _ := labels.Parse(opts.LabelSelector)
 	selector, err := fields.ParseSelector(opts.FieldSelector)
 	if err != nil {
@@ -127,7 +127,7 @@ func (a *volumes) List(opts metav1.ListOptions) (runtime.Object, error) {
 	}
 	req := a.restClient.Get().
 		Namespace(a.ns).
-		Resource(LonghornVolumeName).
+		Resource(LonghornSettingName).
 		// VersionedParams(&options, api.ParameterCodec)
 		FieldsSelectorParam(selector).LabelsSelectorParam(l)
 
@@ -135,52 +135,52 @@ func (a *volumes) List(opts metav1.ListOptions) (runtime.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	var p VolumeList
+	var p SettingList
 	return &p, json.Unmarshal(b, &p)
 }
 
-func (a *volumes) Watch(opts metav1.ListOptions) (watch.Interface, error) {
+func (a *settings) Watch(opts metav1.ListOptions) (watch.Interface, error) {
 	l, _ := labels.Parse(opts.LabelSelector)
 	selector, err := fields.ParseSelector(opts.FieldSelector)
 	r, err := a.restClient.Get().
 		Prefix("watch").
 		Namespace(a.ns).
-		Resource(LonghornVolumeName).
+		Resource(LonghornSettingName).
 		// VersionedParams(&options, api.ParameterCodec).
 		FieldsSelectorParam(selector).LabelsSelectorParam(l).
 		Stream()
 	if err != nil {
 		return nil, err
 	}
-	return watch.NewStreamWatcher(&volumeDecoder{
+	return watch.NewStreamWatcher(&settingDecoder{
 		dec:   json.NewDecoder(r),
 		close: r.Close,
 	}), nil
 
 }
 
-func (a *volumes) DeleteCollection(dopts *metav1.DeleteOptions, lopts metav1.ListOptions) error {
+func (a *settings) DeleteCollection(dopts *metav1.DeleteOptions, lopts metav1.ListOptions) error {
 	return a.client.DeleteCollection(dopts, lopts)
 }
 
-// VolumeFromUnstructured unmarshals an Volume object from dynamic client's unstructured
-func VolumeFromUnstructured(r *unstructured.Unstructured) (*Volume, error) {
+// SettingFromUnstructured unmarshals an Setting object from dynamic client's unstructured
+func SettingFromUnstructured(r *unstructured.Unstructured) (*Setting, error) {
 	b, err := json.Marshal(r.Object)
 	if err != nil {
 		return nil, err
 	}
-	var a Volume
+	var a Setting
 	if err := json.Unmarshal(b, &a); err != nil {
 		return nil, err
 	}
-	a.TypeMeta.Kind = LonghornVolumesKind
+	a.TypeMeta.Kind = LonghornSettingsKind
 	a.TypeMeta.APIVersion = Group + "/" + Version
 	return &a, nil
 }
 
-// UnstructuredFromVolume marshals an Volume object into dynamic client's unstructured
-func UnstructuredFromVolume(a *Volume) (*unstructured.Unstructured, error) {
-	a.TypeMeta.Kind = LonghornVolumesKind
+// UnstructuredFromSetting marshals an Setting object into dynamic client's unstructured
+func UnstructuredFromSetting(a *Setting) (*unstructured.Unstructured, error) {
+	a.TypeMeta.Kind = LonghornSettingsKind
 	a.TypeMeta.APIVersion = Group + "/" + Version
 	b, err := json.Marshal(a)
 	if err != nil {
@@ -193,19 +193,19 @@ func UnstructuredFromVolume(a *Volume) (*unstructured.Unstructured, error) {
 	return &r, nil
 }
 
-type volumeDecoder struct {
+type settingDecoder struct {
 	dec   *json.Decoder
 	close func() error
 }
 
-func (d *volumeDecoder) Close() {
+func (d *settingDecoder) Close() {
 	d.close()
 }
 
-func (d *volumeDecoder) Decode() (action watch.EventType, object runtime.Object, err error) {
+func (d *settingDecoder) Decode() (action watch.EventType, object runtime.Object, err error) {
 	var e struct {
 		Type   watch.EventType
-		Object Volume
+		Object Setting
 	}
 	if err := d.dec.Decode(&e); err != nil {
 		return watch.Error, nil, err
@@ -213,10 +213,10 @@ func (d *volumeDecoder) Decode() (action watch.EventType, object runtime.Object,
 	return e.Type, &e.Object, nil
 }
 
-func NewLonghornVolumeCustomResourceDefinition(labels map[string]string) *extensionsobj.CustomResourceDefinition {
+func NewLonghornSettingCustomResourceDefinition(labels map[string]string) *extensionsobj.CustomResourceDefinition {
 	return &extensionsobj.CustomResourceDefinition{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   LonghornVolumeName + "." + Group,
+			Name:   LonghornSettingName + "." + Group,
 			Labels: labels,
 		},
 		Spec: extensionsobj.CustomResourceDefinitionSpec{
@@ -224,8 +224,8 @@ func NewLonghornVolumeCustomResourceDefinition(labels map[string]string) *extens
 			Version: OperatorVersion,
 			Scope:   extensionsobj.NamespaceScoped,
 			Names: extensionsobj.CustomResourceDefinitionNames{
-				Plural: LonghornVolumeName,
-				Kind:   LonghornVolumesKind,
+				Plural: LonghornSettingName,
+				Kind:   LonghornSettingsKind,
 			},
 		},
 	}

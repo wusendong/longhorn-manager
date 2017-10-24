@@ -27,6 +27,7 @@ var Version = "v1"
 type LonghornV1Interface interface {
 	RESTClient() rest.Interface
 	VolumesGetter
+	SettingsGetter
 }
 
 type LonghornV1Client struct {
@@ -36,6 +37,9 @@ type LonghornV1Client struct {
 
 func (c *LonghornV1Client) Volumes(namespace string) VolumeInterface {
 	return newVolumes(c.restClient, c.dynamicClient, namespace)
+}
+func (c *LonghornV1Client) Settings(namespace string) SettingInterface {
+	return newSettings(c.restClient, c.dynamicClient, namespace)
 }
 
 func (c *LonghornV1Client) RESTClient() rest.Interface {
@@ -66,4 +70,12 @@ func SetConfigDefaults(apiGroup string, config *rest.Config) {
 	config.APIPath = "/apis"
 	config.NegotiatedSerializer = serializer.DirectCodecFactory{CodecFactory: api.Codecs}
 	return
+}
+
+func GetLonghornLables(args ...string) map[string]string {
+	m := map[string]string{"app": "longhorn"}
+	for i := 0; i < len(args); i = i + 2 {
+		m[args[i]] = args[i+1]
+	}
+	return m
 }

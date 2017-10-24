@@ -24,7 +24,7 @@ func (c *Clientset) LonghornV1() v1.LonghornV1Interface {
 	return c.LonghornV1Client
 }
 
-func NewForConfig(apiGroup string, c *rest.Config) (*Clientset, error) {
+func NewForConfig(c *rest.Config) (*Clientset, error) {
 	configShallowCopy := *c
 	if configShallowCopy.RateLimiter == nil && configShallowCopy.QPS > 0 {
 		configShallowCopy.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(configShallowCopy.QPS, configShallowCopy.Burst)
@@ -32,7 +32,7 @@ func NewForConfig(apiGroup string, c *rest.Config) (*Clientset, error) {
 	var cs Clientset
 	var err error
 
-	cs.LonghornV1Client, err = v1.NewForConfig(apiGroup, &configShallowCopy)
+	cs.LonghornV1Client, err = v1.NewForConfig(v1.Group, &configShallowCopy)
 	if err != nil {
 		return nil, err
 	}

@@ -13,8 +13,18 @@ import (
 )
 
 // WaitForCRDReady waits for a third party resource to be available for use.
-func WaitForCRDReady(listFunc func(opts metav1.ListOptions) (runtime.Object, error)) error {
-	err := wait.Poll(3*time.Second, 10*time.Minute, func() (bool, error) {
+func WaitForCRDReady(listFuncs ...func(opts metav1.ListOptions) (runtime.Object, error)) error {
+	for _, listFunc := range listFuncs {
+		err := wait.Poll(3*time.Second, 10*time.Minute, func() (bool, error) {
+			return CrdExists(listFunc)
+		})
+		return errors.Wrap(err, fmt.Sprintf("timed out waiting for Custom Resoruce"))
+	}
+	return nil
+}
+
+func CrdExists(listFuncs ...func(opts metav1.ListOptions) (runtime.Object, error)) (bool, error) {
+	for _, listFunc := range listFuncs {
 		_, err := listFunc(metav1.ListOptions{})
 		if err != nil {
 			if se, ok := err.(*apierrors.StatusError); ok {
@@ -24,8 +34,6 @@ func WaitForCRDReady(listFunc func(opts metav1.ListOptions) (runtime.Object, err
 			}
 			return false, err
 		}
-		return true, nil
-	})
-
-	return errors.Wrap(err, fmt.Sprintf("timed out waiting for Custom Resoruce"))
+	}
+	return true, nil
 }
