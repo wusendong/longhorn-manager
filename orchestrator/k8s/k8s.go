@@ -11,10 +11,10 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
-	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
+	apiv1 "k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/rest"
 
 	"github.com/rancher/longhorn-manager/orchestrator"
@@ -50,7 +50,7 @@ type Config struct {
 	Namespace   string
 }
 
-func NewDockerOrchestrator(cfg *Config) (*K8s, error) {
+func NewK8sOrchestrator(cfg *Config) (*K8s, error) {
 	var err error
 
 	if cfg.EngineImage == "" {
@@ -63,7 +63,7 @@ func NewDockerOrchestrator(cfg *Config) (*K8s, error) {
 			cfg.Namespace = apiv1.NamespaceDefault
 		}
 	}
-	docker := &K8s{
+	k8s := &K8s{
 		EngineImage: cfg.EngineImage,
 		Namespace:   cfg.Namespace,
 	}
@@ -76,24 +76,24 @@ func NewDockerOrchestrator(cfg *Config) (*K8s, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot connect to k8s")
 	}
-	docker.cli = clientset
+	k8s.cli = clientset
 
-	if _, err := docker.cli.Core().Pods(cfg.Namespace).List(metav1.ListOptions{}); err != nil {
+	if _, err := k8s.cli.Core().Pods(cfg.Namespace).List(metav1.ListOptions{}); err != nil {
 		return nil, errors.Wrap(err, "cannot pass test to get pod list")
 	}
 
-	if err = docker.updateNetwork(); err != nil {
+	if err = k8s.updateNetwork(); err != nil {
 		return nil, errors.Wrapf(err, "fail to detect dedicated container network: %v", cfg.Namespace)
 	}
 
-	logrus.Infof("Detected namespace is %s, IP is %s", docker.Namespace, docker.IP)
+	logrus.Infof("Detected namespace is %s, IP is %s", k8s.Namespace, k8s.IP)
 
-	if err := docker.updateCurrentNode(); err != nil {
+	if err := k8s.updateCurrentNode(); err != nil {
 		return nil, err
 	}
 
 	logrus.Info("K8s orchestrator is ready")
-	return docker, nil
+	return k8s, nil
 }
 
 func (d *K8s) updateNetwork() error {

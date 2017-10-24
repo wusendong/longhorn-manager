@@ -120,7 +120,7 @@ func RunManager(c *cli.Context) error {
 			EngineImage: engineImage,
 			Namespace:   c.String(FlagK8sNamespacer),
 		}
-		docker, err := k8s.NewDockerOrchestrator(cfg)
+		docker, err := k8s.NewK8sOrchestrator(cfg)
 		if err != nil {
 			return err
 		}

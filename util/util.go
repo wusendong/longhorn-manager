@@ -237,3 +237,7 @@ func PrintJSON(obj interface{}) {
 	b, _ := json.MarshalIndent(obj, "", "    ")
 	fmt.Printf("%s\n", b)
 }
+
+func Int32Ptr(i int32) *int32 { return &i }
+func Int64Ptr(i int64) *int64 { return &i }
+func BoolPtr(i bool) *bool    { return &i }
