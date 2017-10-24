@@ -33,15 +33,11 @@ type VolumeSpec struct {
 	// https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#metadata
 	// Metadata Labels and Annotations gets propagated to the prometheus pods.
 	PodMetadata *metav1.ObjectMeta `json:"podMetadata,omitempty"`
-	// Version the cluster should be on.
-	Version string `json:"version,omitempty"`
-	// Base image that is used to deploy pods.
-	BaseImage        string `json:"baseImage,omitempty"`
-	NumberOfReplicas *int32 `json:"replicas,omitempty"`
-	// Size that is the volume size in Bytes
-	Size                *int64 `json:"size,omitempty"`
-	FromBackup          string `json:"fromBackup,omitempty"`
-	StaleReplicaTimeout *int64 `json:"staleReplicaTimeout,omitempty"`
+
+	Volume *types.VolumeInfo
+
+	Controller *types.ControllerInfo
+	Replicas   []*types.ReplicaInfo
 }
 
 // A list of volumes.

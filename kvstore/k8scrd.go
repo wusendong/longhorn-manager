@@ -2,6 +2,7 @@ package kvstore
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 
 	"github.com/rancher/longhorn-manager/types"
@@ -31,6 +32,9 @@ type CRDBackend struct {
 	lcli      *crdCli.Clientset
 	namespace string
 	prefix    string
+
+	vcli   lv1.VolumeInterface
+	setcli lv1.SettingInterface
 }
 
 func NewCRDBackend(namespace string, cfg *rest.Config) (*CRDBackend, error) {
@@ -46,6 +50,8 @@ func NewCRDBackend(namespace string, cfg *rest.Config) (*CRDBackend, error) {
 		crdclient: crdclient,
 		lcli:      lcli,
 		namespace: namespace,
+		vcli:      lcli.LonghornV1().Volumes(namespace),
+		setcli:    lcli.LonghornV1().Settings(namespace),
 	}
 	if err := backend.ensureCRD(); err != nil {
 		return nil, err
@@ -82,20 +88,61 @@ func (s *CRDBackend) trimPrefix(key string) string {
 }
 
 var (
-// volumebaseRegx = regx.
+	volumebaserRegx       = regexp.MustCompile(keyVolumes + `/(\S+)/` + keyVolumeBase)
+	volumeControllerrRegx = regexp.MustCompile(keyVolumes + `/(\S+)/` + keyVolumeInstances + `/` + keyVolumeInstanceController)
+	volumeReplicaRegx     = regexp.MustCompile(keyVolumes + `/(\S+)/` + keyVolumeInstances + `/` + keyVolumeInstanceReplicas + `/(\S+)`)
 )
 
 func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
 	key = s.trimPrefix(key)
 
 	if key == keySettings {
-		if setting, err := lv1.ToSetting(obj); err != nil {
+		// 1. settings
+		if setting, err := ToSetting(obj); err != nil {
 			return 0, err
-		} else if _, err := s.lcli.LonghornV1().Settings(s.namespace).Create(setting); err != nil {
+		} else if _, err := s.setcli.Create(setting); err != nil {
 			return 0, err
 		}
-	} else if strings.HasPrefix(key, keyVolumes+"/vol1"+"/base") {
-
+	} else if strings.HasPrefix(key, keyVolumes) {
+		// 2. volumes
+		if fields := volumebaserRegx.FindStringSubmatch(key); len(fields) > 1 {
+			// 2.2 /longhorn/volumes/vol1/base
+			if volume, err := ToVolume(obj); err != nil {
+				return 0, err
+			} else if _, err := s.vcli.Create(volume); err != nil {
+				return 0, err
+			}
+		} else if fields := volumeControllerrRegx.FindStringSubmatch(key); len(fields) > 1 {
+			// 2.3 /longhorn/volumes/vol1/instances/controller
+			volumename := fields[1]
+			controllerinfo, ok := obj.(*types.ControllerInfo)
+			if !ok {
+				return 0, errors.Errorf("Mismatch type: %T", obj)
+			}
+			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
+			if err != nil {
+				return 0, errors.Wrapf(err, "volume %v not found", volumename)
+			}
+			volume.Spec.Controller = controllerinfo
+			if _, err := s.vcli.Update(volume); err != nil {
+				return 0, errors.Wrapf(err, "update controller failed")
+			}
+		} else if fields := volumeReplicaRegx.FindStringSubmatch(key); len(fields) > 2 {
+			// 2.4 /longhorn/volumes/vol1/instances/replicas/{vol1}-replica-{7d3248ab-0f95-4454}
+			volumename := fields[1]
+			replicainfo, ok := obj.(*types.ReplicaInfo)
+			if !ok {
+				return 0, errors.Errorf("Mismatch type: %T", obj)
+			}
+			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
+			if err != nil {
+				return 0, errors.Wrapf(err, "volume %v not found", volumename)
+			}
+			volume.Spec.Replicas = append(volume.Spec.Replicas, replicainfo)
+			if _, err := s.vcli.Update(volume); err != nil {
+				return 0, errors.Wrapf(err, "update controller failed")
+			}
+		}
 	} else if strings.HasPrefix(key, keyNodes) {
 		// do nothing cause we just use all k8s nodes
 	}
@@ -105,9 +152,10 @@ func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
 
 func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, error) {
 	if key == keySettings {
+		// 1. settings
 		setting, err := s.lcli.LonghornV1().Settings(s.namespace).Get(keySettings, metav1.GetOptions{})
 		if err != nil {
-			return 0, err
+			return 0, errors.Wrapf(err, "setting not found")
 		}
 		info, ok := obj.(types.SettingsInfo)
 		if !ok {
@@ -118,7 +166,53 @@ func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, 
 			return 0, err
 		}
 	} else if strings.HasPrefix(key, keyNodes) {
-
+		// 2. volumes
+		if fields := volumebaserRegx.FindStringSubmatch(key); len(fields) > 1 {
+			// 2.2 /longhorn/volumes/vol1/base
+			volumename := fields[1]
+			volumeinfo, ok := obj.(*types.VolumeInfo)
+			if !ok {
+				return 0, errors.Errorf("Mismatch type: %T", obj)
+			}
+			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
+			if err != nil {
+				return 0, errors.Wrapf(err, "volume %v not found", volumename)
+			}
+			volume.Spec.Volume = volumeinfo
+			if _, err := s.vcli.Update(volume); err != nil {
+				return 0, errors.Wrapf(err, "update controller failed")
+			}
+		} else if fields := volumeControllerrRegx.FindStringSubmatch(key); len(fields) > 1 {
+			// 2.3 /longhorn/volumes/vol1/instances/controller
+			volumename := fields[1]
+			controllerinfo, ok := obj.(*types.ControllerInfo)
+			if !ok {
+				return 0, errors.Errorf("Mismatch type: %T", obj)
+			}
+			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
+			if err != nil {
+				return 0, errors.Wrapf(err, "volume %v not found", volumename)
+			}
+			volume.Spec.Controller = controllerinfo
+			if _, err := s.vcli.Update(volume); err != nil {
+				return 0, errors.Wrapf(err, "update controller failed")
+			}
+		} else if fields := volumeReplicaRegx.FindStringSubmatch(key); len(fields) > 2 {
+			// 2.4 /longhorn/volumes/vol1/instances/replicas/{vol1}-replica-{7d3248ab-0f95-4454}
+			volumename := fields[1]
+			replicainfo, ok := obj.(*types.ReplicaInfo)
+			if !ok {
+				return 0, errors.Errorf("Mismatch type: %T", obj)
+			}
+			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
+			if err != nil {
+				return 0, errors.Wrapf(err, "volume %v not found", volumename)
+			}
+			volume.Spec.Replicas = append(volume.Spec.Replicas, replicainfo)
+			if _, err := s.vcli.Update(volume); err != nil {
+				return 0, errors.Wrapf(err, "update controller failed")
+			}
+		}
 	} else if strings.HasPrefix(key, keyNodes) {
 		// do nothing cause we just use all k8s nodes
 	}
