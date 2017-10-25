@@ -31,6 +31,8 @@ const (
 	FlagK8sNamespacer = "k8s-namespace"
 
 	EnvEngineImage = "LONGHORN_ENGINE_IMAGE"
+
+	KVstorePrefix = "/longhorn_manager_test"
 )
 
 var VERSION = "0.2.0"
@@ -103,6 +105,7 @@ func RunManager(c *cli.Context) error {
 		return fmt.Errorf("require %v", FlagEngineImage)
 	}
 
+	var store *kvstore.KVStore
 	orchName := c.String("orchestrator")
 	if orchName == "docker" {
 		cfg := &docker.Config{
@@ -115,38 +118,47 @@ func RunManager(c *cli.Context) error {
 		}
 		forwarder = orchestrator.NewForwarder(docker)
 		orch = forwarder
+
+		etcdServers := c.StringSlice(FlagETCDServers)
+		if len(etcdServers) == 0 {
+			return fmt.Errorf("require %v", FlagETCDServers)
+		}
+		etcdBackend, err := kvstore.NewETCDBackend(etcdServers)
+		if err != nil {
+			return err
+		}
+		store, err = kvstore.NewKVStore(KVstorePrefix, etcdBackend)
+		if err != nil {
+			return err
+		}
 	} else if orchName == "k8s" {
 		cfg := &k8s.Config{
 			EngineImage: engineImage,
 			Namespace:   c.String(FlagK8sNamespacer),
 		}
-		docker, err := k8s.NewK8sOrchestrator(cfg)
+		k8s, err := k8s.NewK8sOrchestrator(cfg)
 		if err != nil {
 			return err
 		}
-		forwarder = orchestrator.NewForwarder(docker)
+		forwarder = orchestrator.NewForwarder(k8s)
 		orch = forwarder
+
+		crdBackend, err := kvstore.NewCRDBackend(KVstorePrefix, k8s.Namespace, k8s.RestConfig)
+		if err != nil {
+			return err
+		}
+		store, err = kvstore.NewKVStore(KVstorePrefix, crdBackend)
+		if err != nil {
+			return err
+		}
 	} else {
 		return fmt.Errorf("invalid orchestrator %v", orchName)
-	}
-
-	etcdServers := c.StringSlice(FlagETCDServers)
-	if len(etcdServers) == 0 {
-		return fmt.Errorf("require %v", FlagETCDServers)
-	}
-	etcdBackend, err := kvstore.NewETCDBackend(etcdServers)
-	if err != nil {
-		return err
-	}
-	etcd, err := kvstore.NewKVStore("/longhorn_manager_test", etcdBackend)
-	if err != nil {
-		return err
 	}
 
 	engines := &engineapi.EngineCollection{}
 	rpc := manager.NewGRPCManager()
 
-	m, err := manager.NewVolumeManager(etcd, orch, engines, rpc, types.DefaultManagerPort)
+	m, err := manager.NewVolumeManager(store, orch, engines, rpc, types.DefaultManagerPort)
 	if err != nil {
 		return err
 	}

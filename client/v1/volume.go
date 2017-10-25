@@ -33,7 +33,7 @@ import (
 // constants for longhorh crd
 const (
 	LonghornVolumesKind = "LonghornVolume"
-	LonghornVolumeName  = "longhorn-volumes"
+	LonghornVolumeName  = "longhornvolumes"
 )
 
 type VolumesGetter interface {

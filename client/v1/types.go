@@ -35,9 +35,6 @@ type VolumeSpec struct {
 	PodMetadata *metav1.ObjectMeta `json:"podMetadata,omitempty"`
 
 	Volume *types.VolumeInfo
-
-	Controller *types.ControllerInfo
-	Replicas   []*types.ReplicaInfo
 }
 
 // A list of volumes.
@@ -55,16 +52,8 @@ type VolumeList struct {
 // Operator API itself. More info:
 // https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#spec-and-status
 type VolumeStatus struct {
-	TargetNodeID string
-	DesireState  types.VolumeState
-
-	Created       string
-	NodeID        string
-	State         types.VolumeState
-	Endpoint      string
-	RecurringJobs []types.RecurringJob
-
-	Replicas []types.ReplicaInfo
+	Controller *types.ControllerInfo
+	Replicas   []*types.ReplicaInfo
 }
 
 // Describes an setting.

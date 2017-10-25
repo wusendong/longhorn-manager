@@ -5,12 +5,12 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/rancher/longhorn-manager/types"
 	"github.com/rancher/longhorn-manager/util"
 
 	"github.com/pkg/errors"
 
-	eCli "github.com/coreos/etcd/client"
 	crdCli "github.com/rancher/longhorn-manager/client"
 	lv1 "github.com/rancher/longhorn-manager/client/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -25,10 +25,6 @@ import (
 )
 
 type CRDBackend struct {
-	Servers []string
-
-	kapi eCli.KeysAPI
-
 	crdclient *apiextensionsclient.Clientset
 	lcli      *crdCli.Clientset
 	kcli      *kubernetes.Clientset
@@ -39,7 +35,7 @@ type CRDBackend struct {
 	setcli lv1.SettingInterface
 }
 
-func NewCRDBackend(namespace string, cfg *rest.Config) (*CRDBackend, error) {
+func NewCRDBackend(prefix, namespace string, cfg *rest.Config) (*CRDBackend, error) {
 	crdclient, err := apiextensionsclient.NewForConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -54,6 +50,7 @@ func NewCRDBackend(namespace string, cfg *rest.Config) (*CRDBackend, error) {
 		return nil, err
 	}
 	backend := &CRDBackend{
+		prefix:    prefix,
 		crdclient: crdclient,
 		lcli:      lcli,
 		kcli:      kcli,
@@ -106,6 +103,7 @@ var (
 
 func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
 	key = s.trimPrefix(key)
+	logrus.Debugf("- create key = [%v]", key)
 
 	if key == keySettings {
 		// 1. settings
@@ -132,9 +130,12 @@ func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
 			}
 			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
 			if err != nil {
-				return 0, errors.Wrapf(err, "volume %v not found", volumename)
+				return 0, err
 			}
-			volume.Spec.Controller = controllerinfo
+			if volume.Status == nil {
+				volume.Status = &lv1.VolumeStatus{}
+			}
+			volume.Status.Controller = controllerinfo
 			if _, err := s.vcli.Update(volume); err != nil {
 				return 0, errors.Wrapf(err, "update controller failed")
 			}
@@ -147,9 +148,12 @@ func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
 			}
 			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
 			if err != nil {
-				return 0, errors.Wrapf(err, "volume %v not found", volumename)
+				return 0, err
 			}
-			volume.Spec.Replicas = append(volume.Spec.Replicas, replicainfo)
+			if volume.Status == nil {
+				volume.Status = &lv1.VolumeStatus{}
+			}
+			volume.Status.Replicas = append(volume.Status.Replicas, replicainfo)
 			if _, err := s.vcli.Update(volume); err != nil {
 				return 0, errors.Wrapf(err, "update controller failed")
 			}
@@ -163,11 +167,12 @@ func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
 
 func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, error) {
 	key = s.trimPrefix(key)
+	logrus.Debugf("- update key = [%v]", key)
 	if key == keySettings {
 		// 1. settings
 		setting, err := s.lcli.LonghornV1().Settings(s.namespace).Get(keySettings, metav1.GetOptions{})
 		if err != nil {
-			return 0, errors.Wrapf(err, "setting not found")
+			return 0, err
 		}
 		info, ok := obj.(types.SettingsInfo)
 		if !ok {
@@ -188,7 +193,7 @@ func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, 
 			}
 			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
 			if err != nil {
-				return 0, errors.Wrapf(err, "volume %v not found", volumename)
+				return 0, err
 			}
 			volume.Spec.Volume = volumeinfo
 			if _, err := s.vcli.Update(volume); err != nil {
@@ -203,9 +208,12 @@ func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, 
 			}
 			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
 			if err != nil {
-				return 0, errors.Wrapf(err, "volume %v not found", volumename)
+				return 0, err
 			}
-			volume.Spec.Controller = controllerinfo
+			if volume.Status == nil {
+				volume.Status = &lv1.VolumeStatus{}
+			}
+			volume.Status.Controller = controllerinfo
 			if _, err := s.vcli.Update(volume); err != nil {
 				return 0, errors.Wrapf(err, "update controller failed")
 			}
@@ -218,9 +226,12 @@ func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, 
 			}
 			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
 			if err != nil {
-				return 0, errors.Wrapf(err, "volume %v not found", volumename)
+				return 0, err
 			}
-			volume.Spec.Replicas = append(volume.Spec.Replicas, replicainfo)
+			if volume.Status == nil {
+				volume.Status = &lv1.VolumeStatus{}
+			}
+			volume.Status.Replicas = append(volume.Status.Replicas, replicainfo)
 			if _, err := s.vcli.Update(volume); err != nil {
 				return 0, errors.Wrapf(err, "update controller failed")
 			}
@@ -232,25 +243,23 @@ func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, 
 }
 
 func (s *CRDBackend) IsNotFoundError(err error) bool {
-	return eCli.IsKeyNotFound(err)
+	return apierrors.IsNotFound(err)
 }
 
 func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 	key = s.trimPrefix(key)
+	logrus.Debugf("- get key = [%v]", key)
 	if key == keySettings {
 		// 1. settings
 		setting, err := s.lcli.LonghornV1().Settings(s.namespace).Get(keySettings, metav1.GetOptions{})
 		if err != nil {
-			return 0, errors.Wrapf(err, "setting not found")
+			return 0, err
 		}
 		info, ok := obj.(types.SettingsInfo)
 		if !ok {
 			return 0, errors.Errorf("Mismatch type: %T", obj)
 		}
-		setting.Spec.BackupTarget = info.BackupTarget
-		if _, err := s.lcli.LonghornV1().Settings(s.namespace).Update(setting); err != nil {
-			return 0, err
-		}
+		info.BackupTarget = setting.Spec.BackupTarget
 	} else if strings.HasPrefix(key, keyVolumes) {
 		// 2. volumes
 		if fields := volumebaserRegx.FindStringSubmatch(key); len(fields) > 1 {
@@ -262,7 +271,11 @@ func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 			}
 			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
 			if err != nil {
-				return 0, errors.Wrapf(err, "volume %v not found", volumename)
+				logrus.Debugf("-- err = [%#v]", err)
+				if !apierrors.IsNotFound(err) {
+					logrus.Debugf("-- err is not found")
+				}
+				return 0, err
 			}
 			*volumeinfo = *volume.Spec.Volume
 		} else if fields := volumeControllerrRegx.FindStringSubmatch(key); len(fields) > 1 {
@@ -274,9 +287,12 @@ func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 			}
 			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
 			if err != nil {
-				return 0, errors.Wrapf(err, "volume %v not found", volumename)
+				return 0, err
 			}
-			*controllerinfo = *volume.Spec.Controller
+			if volume.Status == nil || volume.Status.Controller == nil {
+				return 0, apierrors.NewNotFound(apiv1.Resource("controller"), key)
+			}
+			*controllerinfo = *volume.Status.Controller
 		} else if fields := volumeReplicaRegx.FindStringSubmatch(key); len(fields) > 2 {
 			// 2.4 /longhorn/volumes/vol1/instances/replicas/{vol1}-replica-{7d3248ab-0f95-4454}
 			volumename := fields[1]
@@ -287,9 +303,12 @@ func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 			}
 			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
 			if err != nil {
-				return 0, errors.Wrapf(err, "volume %v not found", volumename)
+				return 0, err
 			}
-			for _, replica := range volume.Spec.Replicas {
+			if volume.Status == nil {
+				return 0, apierrors.NewNotFound(apiv1.Resource("replica"), key)
+			}
+			for _, replica := range volume.Status.Replicas {
 				if replica.Name == replicaname {
 					*replicainfo = *replica
 					break
@@ -329,6 +348,7 @@ func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 
 func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 	prefix = s.trimPrefix(prefix)
+	logrus.Debugf("- list key = [%v]", prefix)
 	ret := []string{}
 	if prefix == keyVolumes {
 		vs, err := s.vcli.List(metav1.ListOptions{})
@@ -344,7 +364,7 @@ func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, replica := range volume.Spec.Replicas {
+		for _, replica := range volume.Status.Replicas {
 			ret = append(ret, filepath.Join(s.prefix, keyVolumes, volumename, keyVolumeInstances, keyVolumeInstanceReplicas, replica.Name))
 		}
 	} else if prefix == keyNodes {
@@ -353,7 +373,7 @@ func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 			return nil, err
 		}
 		for _, node := range nodes.Items {
-			ret = append(ret, node.GetName())
+			ret = append(ret, filepath.Join(s.prefix, keyNodes, node.GetName()))
 		}
 	}
 	return ret, nil
@@ -361,66 +381,51 @@ func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 
 func (s *CRDBackend) Delete(key string) error {
 	key = s.trimPrefix(key)
+	logrus.Debugf("- delete key = [%v]", key)
 	if fields := volumeRegx.FindStringSubmatch(key); len(fields) > 1 {
 		volumename := fields[1]
 		if err := s.vcli.Delete(volumename, &metav1.DeleteOptions{}); err != nil {
-			return err
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
 		}
 	} else if fields := volumeControllerrRegx.FindStringSubmatch(key); len(fields) > 1 {
 		volumename := fields[1]
 		volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
 		if err != nil {
-			return err
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
 		}
-		volume.Spec.Controller = nil
+		volume.Status.Controller = nil
 		if _, err := s.vcli.Update(volume); err != nil {
-			return err
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
 		}
 	} else if fields := volumeReplicaRegx.FindStringSubmatch(key); len(fields) > 2 {
 		volumename := fields[1]
 		replicaname := fields[2]
 		volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
 		if err != nil {
-			return err
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
 		}
 		replicas := []*types.ReplicaInfo{}
-		for _, replica := range volume.Spec.Replicas {
+		for _, replica := range volume.Status.Replicas {
 			if replica.Name == replicaname {
 				continue
 			}
 			replicas = append(replicas, replica)
 		}
-		volume.Spec.Replicas = replicas
+		volume.Status.Replicas = replicas
 		if _, err := s.vcli.Update(volume); err != nil {
-			return err
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
 		}
 	}
 
 	return nil
 }
-
-func NewLonghornVolumeCustomResourceDefinition(labels map[string]string) *extensionsobj.CustomResourceDefinition {
-	return &extensionsobj.CustomResourceDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   LonghornManagerName + "." + Group,
-			Labels: labels,
-		},
-		Spec: extensionsobj.CustomResourceDefinitionSpec{
-			Group:   Group,
-			Version: OperatorVersion,
-			Scope:   extensionsobj.NamespaceScoped,
-			Names: extensionsobj.CustomResourceDefinitionNames{
-				Plural: LonghornManagerName,
-				Kind:   LonghornManagerKind,
-			},
-		},
-	}
-}
-
-// longhorh crd object
-const (
-	OperatorVersion     = "v1"
-	Group               = "rancher.com"
-	LonghornManagerName = "longhorn-managers"
-	LonghornManagerKind = "LonghornManager"
-)

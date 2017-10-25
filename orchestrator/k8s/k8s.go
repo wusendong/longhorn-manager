@@ -20,6 +20,7 @@ import (
 	"github.com/rancher/longhorn-manager/orchestrator"
 	"github.com/rancher/longhorn-manager/types"
 	"github.com/rancher/longhorn-manager/util"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 const (
@@ -43,6 +44,8 @@ type K8s struct {
 	currentNode *types.NodeInfo
 
 	cli *kubernetes.Clientset
+
+	RestConfig *rest.Config
 }
 
 type Config struct {
@@ -77,9 +80,12 @@ func NewK8sOrchestrator(cfg *Config) (*K8s, error) {
 		return nil, errors.Wrap(err, "cannot connect to k8s")
 	}
 	k8s.cli = clientset
+	k8s.RestConfig = config
 
 	if _, err := k8s.cli.Core().Pods(cfg.Namespace).List(metav1.ListOptions{}); err != nil {
-		return nil, errors.Wrap(err, "cannot pass test to get pod list")
+		if !apierrors.IsNotFound(err) {
+			return nil, errors.Wrap(err, "cannot pass test to get pod list")
+		}
 	}
 
 	if err = k8s.updateNetwork(); err != nil {

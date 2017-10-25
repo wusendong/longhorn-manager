@@ -33,7 +33,7 @@ import (
 // constants for longhorh crd
 const (
 	LonghornSettingsKind = "LonghornSetting"
-	LonghornSettingName  = "longhorn-settings"
+	LonghornSettingName  = "longhornsettings"
 )
 
 type SettingsGetter interface {

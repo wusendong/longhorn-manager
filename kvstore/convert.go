@@ -30,10 +30,11 @@ func ToVolume(obj interface{}) (*lv1.Volume, error) {
 
 	return &lv1.Volume{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "setting",
+			Name: volume.Name,
 		},
 		Spec: lv1.VolumeSpec{
 			Volume: volume,
 		},
+		Status: &lv1.VolumeStatus{},
 	}, nil
 }

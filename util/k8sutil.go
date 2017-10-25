@@ -32,6 +32,7 @@ func CrdExists(listFuncs ...func(opts metav1.ListOptions) (runtime.Object, error
 					return false, nil
 				}
 			}
+			fmt.Printf("------ crd error: %#v\n", err)
 			return false, err
 		}
 	}
