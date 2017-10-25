@@ -9,7 +9,6 @@ import (
 	"github.com/rancher/longhorn-manager/util"
 
 	"github.com/pkg/errors"
-	"golang.org/x/net/context"
 
 	eCli "github.com/coreos/etcd/client"
 	crdCli "github.com/rancher/longhorn-manager/client"
@@ -97,10 +96,11 @@ func (s *CRDBackend) trimPrefix(key string) string {
 }
 
 var (
-	volumebaserRegx       = regexp.MustCompile(keyVolumes + `/(\S+)/` + keyVolumeBase)
-	volumeControllerrRegx = regexp.MustCompile(keyVolumes + `/(\S+)/` + keyVolumeInstances + `/` + keyVolumeInstanceController)
-	volumeReplicaRegx     = regexp.MustCompile(keyVolumes + `/(\S+)/` + keyVolumeInstances + `/` + keyVolumeInstanceReplicas + `/(\S+)`)
-	nodeRegx              = regexp.MustCompile(keyNodes + `/(\S+)`)
+	volumeRegx            = regexp.MustCompile(keyVolumes + `/([^\/]+)$`)
+	volumebaserRegx       = regexp.MustCompile(keyVolumes + `/([^\/]+)/` + keyVolumeBase)
+	volumeControllerrRegx = regexp.MustCompile(keyVolumes + `/([^\/]+)/` + keyVolumeInstances + `/` + keyVolumeInstanceController)
+	volumeReplicaRegx     = regexp.MustCompile(keyVolumes + `/([^\/]+)/` + keyVolumeInstances + `/` + keyVolumeInstanceReplicas + `/([^\/]+)`)
+	nodeRegx              = regexp.MustCompile(keyNodes + `/([^\/]+)`)
 )
 
 func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
@@ -331,8 +331,8 @@ var (
 )
 
 func (s *CRDBackend) Keys(prefix string) ([]string, error) {
-	ret := []string{}
 	prefix = s.trimPrefix(prefix)
+	ret := []string{}
 	if prefix == keyVolumes {
 		vs, err := s.vcli.List(metav1.ListOptions{})
 		if err != nil {
@@ -363,16 +363,42 @@ func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 }
 
 func (s *CRDBackend) Delete(key string) error {
-
-	_, err := s.kapi.Delete(context.Background(), key, &eCli.DeleteOptions{
-		Recursive: true,
-	})
-	if err != nil {
-		if eCli.IsKeyNotFound(err) {
-			return nil
+	key = s.trimPrefix(key)
+	if fields := volumeRegx.FindStringSubmatch(key); len(fields) > 1 {
+		volumename := fields[1]
+		if err := s.vcli.Delete(volumename, &metav1.DeleteOptions{}); err != nil {
+			return err
 		}
-		return err
+	} else if fields := volumeControllerrRegx.FindStringSubmatch(key); len(fields) > 1 {
+		volumename := fields[1]
+		volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		volume.Spec.Controller = nil
+		if _, err := s.vcli.Update(volume); err != nil {
+			return err
+		}
+	} else if fields := volumeReplicaRegx.FindStringSubmatch(key); len(fields) > 2 {
+		volumename := fields[1]
+		replicaname := fields[2]
+		volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		replicas := []*types.ReplicaInfo{}
+		for _, replica := range volume.Spec.Replicas {
+			if replica.Name == replicaname {
+				continue
+			}
+			replicas = append(replicas, replica)
+		}
+		volume.Spec.Replicas = replicas
+		if _, err := s.vcli.Update(volume); err != nil {
+			return err
+		}
 	}
+
 	return nil
 }
 
