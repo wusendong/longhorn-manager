@@ -101,6 +101,7 @@ var (
 	volumeControllerrRegx = regexp.MustCompile(keyVolumes + `/([^\/]+)/` + keyVolumeInstances + `/` + keyVolumeInstanceController)
 	volumeReplicaRegx     = regexp.MustCompile(keyVolumes + `/([^\/]+)/` + keyVolumeInstances + `/` + keyVolumeInstanceReplicas + `/([^\/]+)`)
 	nodeRegx              = regexp.MustCompile(keyNodes + `/([^\/]+)`)
+	replicaKeysRegx       = regexp.MustCompile(keyVolumes + `/(\S+)/` + keyVolumeInstances + `/` + keyVolumeInstanceReplicas)
 )
 
 func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
@@ -154,7 +155,7 @@ func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
 			}
 		}
 	} else if strings.HasPrefix(key, keyNodes) {
-		// do nothing cause we just use all k8s nodes
+		// do nothing here cause we just use all k8s nodes
 	}
 
 	return 0, nil
@@ -225,7 +226,7 @@ func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, 
 			}
 		}
 	} else if strings.HasPrefix(key, keyNodes) {
-		// do nothing cause we just use all k8s nodes
+		// do nothing here cause we just use all k8s nodes
 	}
 	return 0, nil
 }
@@ -325,10 +326,6 @@ func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 
 	return 0, nil
 }
-
-var (
-	replicaKeysRegx = regexp.MustCompile(keyVolumes + `/(\S+)/` + keyVolumeInstances + `/` + keyVolumeInstanceReplicas)
-)
 
 func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 	prefix = s.trimPrefix(prefix)

@@ -125,6 +125,12 @@ func (d *K8s) updateCurrentNode() error {
 
 	if nodename := os.Getenv("MY_NODE_NAME"); nodename != "" {
 		node.Name = nodename
+		nodeinfo, err := d.cli.Core().Nodes().Get(nodename, metav1.GetOptions{})
+		if err == nil {
+			node.ID = nodeinfo.Status.NodeInfo.MachineID
+			d.currentNode = node
+			return nil
+		}
 	} else {
 		node.Name, err = os.Hostname()
 		if err != nil {
