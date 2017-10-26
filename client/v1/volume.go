@@ -17,6 +17,8 @@ package v1
 import (
 	"encoding/json"
 
+	"github.com/Sirupsen/logrus"
+
 	"github.com/pkg/errors"
 
 	extensionsobj "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
@@ -79,7 +81,15 @@ func (a *volumes) Create(o *Volume) (*Volume, error) {
 		return nil, err
 	}
 
-	ua, err = a.client.Create(ua)
+	try := 5
+	for try > 0 {
+		ua, err = a.client.Create(ua)
+		if err == nil {
+			break
+		}
+		try--
+		logrus.Debugf("-- try create %v time,err = [%#v]", 5-try, err)
+	}
 	if err != nil {
 		return nil, err
 	}

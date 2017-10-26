@@ -11,6 +11,7 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
+	lv1 "github.com/rancher/longhorn-manager/client/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
@@ -131,12 +132,9 @@ func (d *K8s) updateCurrentNode() error {
 
 	if nodename := os.Getenv("MY_NODE_NAME"); nodename != "" {
 		node.Name = nodename
-		nodeinfo, err := d.cli.Core().Nodes().Get(nodename, metav1.GetOptions{})
-		if err == nil {
-			node.ID = nodeinfo.Status.NodeInfo.MachineID
-			d.currentNode = node
-			return nil
-		}
+		node.ID = nodename
+		d.currentNode = node
+		return nil
 	} else {
 		node.Name, err = os.Hostname()
 		if err != nil {
@@ -196,7 +194,8 @@ func (d *K8s) CreateController(req *orchestrator.Request) (instance *orchestrato
 	podClient := d.cli.Core().Pods(d.Namespace)
 	pod := &apiv1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: req.InstanceName,
+			Name:   req.InstanceName,
+			Labels: lv1.GetLonghornLables("longhorn-controller", "true"),
 		},
 		Spec: apiv1.PodSpec{
 			Containers: []apiv1.Container{
@@ -302,7 +301,8 @@ func (d *K8s) CreateReplica(req *orchestrator.Request) (instance *orchestrator.I
 	podClient := d.cli.Core().Pods(d.Namespace)
 	pod := &apiv1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: req.InstanceName,
+			Name:   req.InstanceName,
+			Labels: lv1.GetLonghornLables("longhorn-replica", "true"),
 		},
 		Spec: apiv1.PodSpec{
 			Containers: []apiv1.Container{

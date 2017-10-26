@@ -48,9 +48,12 @@ func NewVolumeManager(kv *kvstore.KVStore,
 	}
 	manager.scheduler = scheduler.NewScheduler(manager)
 
+	// register node and start rpc server
 	if err := manager.RegisterNode(port); err != nil {
 		return nil, err
 	}
+
+	// start to receive notify and reconcil volumes
 	go manager.startProcessing()
 	return manager, nil
 }

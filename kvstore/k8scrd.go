@@ -174,7 +174,7 @@ func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, 
 		if err != nil {
 			return 0, err
 		}
-		info, ok := obj.(types.SettingsInfo)
+		info, ok := obj.(*types.SettingsInfo)
 		if !ok {
 			return 0, errors.Errorf("Mismatch type: %T", obj)
 		}
@@ -231,7 +231,14 @@ func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, 
 			if volume.Status == nil {
 				volume.Status = &lv1.VolumeStatus{}
 			}
-			volume.Status.Replicas = append(volume.Status.Replicas, replicainfo)
+			replicas := []*types.ReplicaInfo{replicainfo}
+			for _, replica := range volume.Status.Replicas {
+				if replicainfo.Name == replica.Name {
+					continue
+				}
+				replicas = append(replicas, replica)
+			}
+			volume.Status.Replicas = replicas
 			if _, err := s.vcli.Update(volume); err != nil {
 				return 0, errors.Wrapf(err, "update controller failed")
 			}
@@ -255,7 +262,7 @@ func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 		if err != nil {
 			return 0, err
 		}
-		info, ok := obj.(types.SettingsInfo)
+		info, ok := obj.(*types.SettingsInfo)
 		if !ok {
 			return 0, errors.Errorf("Mismatch type: %T", obj)
 		}
@@ -272,7 +279,7 @@ func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 			volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
 			if err != nil {
 				logrus.Debugf("-- err = [%#v]", err)
-				if !apierrors.IsNotFound(err) {
+				if apierrors.IsNotFound(err) {
 					logrus.Debugf("-- err is not found")
 				}
 				return 0, err
@@ -314,7 +321,6 @@ func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 					break
 				}
 			}
-
 		}
 	} else if fields := nodeRegx.FindStringSubmatch(key); len(fields) > 1 {
 		nodeID := fields[1]
@@ -336,9 +342,12 @@ func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 			}
 		}
 		nodetmp := types.NodeInfo{
-			ID:   node.Status.NodeInfo.MachineID,
-			Name: node.GetName(),
-			IP:   ip,
+			ID:               node.GetName(),
+			Name:             node.GetName(),
+			IP:               ip,
+			ManagerPort:      9507,
+			OrchestratorPort: 9508,
+			State:            types.NodeStateUp,
 		}
 		*nodeinfo = nodetmp
 	}
@@ -353,6 +362,9 @@ func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 	if prefix == keyVolumes {
 		vs, err := s.vcli.List(metav1.ListOptions{})
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil, nil
+			}
 			return nil, err
 		}
 		for _, v := range vs.(*lv1.VolumeList).Items {
@@ -362,7 +374,13 @@ func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 		volumename := fields[1]
 		volume, err := s.vcli.Get(volumename, metav1.GetOptions{})
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil, nil
+			}
 			return nil, err
+		}
+		if volume.Status == nil {
+			return nil, nil
 		}
 		for _, replica := range volume.Status.Replicas {
 			ret = append(ret, filepath.Join(s.prefix, keyVolumes, volumename, keyVolumeInstances, keyVolumeInstanceReplicas, replica.Name))
@@ -370,6 +388,9 @@ func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 	} else if prefix == keyNodes {
 		nodes, err := s.kcli.Core().Nodes().List(metav1.ListOptions{})
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil, nil
+			}
 			return nil, err
 		}
 		for _, node := range nodes.Items {

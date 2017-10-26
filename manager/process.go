@@ -11,7 +11,7 @@ import (
 	"github.com/rancher/longhorn-manager/types"
 )
 
-var (
+const (
 	ConfirmationInterval = 5 * time.Second
 	ConfirmationCounts   = 6
 
@@ -24,12 +24,15 @@ func (m *VolumeManager) startProcessing() {
 		logrus.Fatalf("fail to acquire existing volume list")
 	}
 	if volumes != nil {
+		// manage my volume when longhorn-manager up
 		for name, volume := range volumes {
 			if volume.TargetNodeID == m.GetCurrentNodeID() {
 				go m.notifyVolume(name)
 			}
 		}
 	}
+
+	// manage volumes notify to me
 	for event := range m.EventChan {
 		switch event.Type {
 		case EventTypeNotify:
