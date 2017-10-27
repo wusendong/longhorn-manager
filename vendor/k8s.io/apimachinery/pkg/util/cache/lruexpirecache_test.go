@@ -22,7 +22,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/clock"
 
-	"github.com/golang/groupcache/lru"
+	lru "github.com/golang/groupcache/lru"
 )
 
 func expectEntry(t *testing.T, c *LRUExpireCache, key lru.Key, value interface{}) {
