@@ -120,6 +120,10 @@ func (v *ManagedVolume) stopReplica(replicaName string) (err error) {
 	return nil
 }
 
+func (v *ManagedVolume) updateVolume() error {
+	return nil
+}
+
 func (v *ManagedVolume) markBadReplica(replicaName string) (err error) {
 	defer func() {
 		if err != nil {
@@ -136,11 +140,12 @@ func (v *ManagedVolume) markBadReplica(replicaName string) (err error) {
 		return err
 	}
 
-	if replica.Running {
-		if err := v.stopReplica(replica.Name); err != nil {
-			return err
-		}
-	}
+	// no stop replica in k8s
+	// if replica.Running {
+	// 	if err := v.stopReplica(replica.Name); err != nil {
+	// 		return err
+	// 	}
+	// }
 	return nil
 }
 

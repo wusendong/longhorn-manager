@@ -211,7 +211,7 @@ func ExecuteWithTimeout(timeout time.Duration, binary string, args ...string) (s
 }
 
 func TimestampAfterTimeout(ts string, timeoutInSeconds int) bool {
-	return false
+	return true
 }
 
 func ValidateName(name string) bool {

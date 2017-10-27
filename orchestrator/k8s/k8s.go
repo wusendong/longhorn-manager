@@ -462,15 +462,21 @@ func (d *K8s) DeleteInstance(req *orchestrator.Request) (err error) {
 		err = errors.Wrapf(err, "fail to delete instance %v(%v)", req.InstanceName, req.InstanceID)
 	}()
 
-	if err := orchestrator.ValidateRequestInstanceOps(req); err != nil {
+	if err = orchestrator.ValidateRequestInstanceOps(req); err != nil {
 		return err
 	}
 	if req.NodeID != d.currentNode.ID {
 		return fmt.Errorf("incorrect node, requested %v, current %v", req.NodeID,
 			d.currentNode.ID)
 	}
-
-	return d.cli.Core().Pods(d.Namespace).Delete(req.InstanceID, &metav1.DeleteOptions{})
+	err = d.cli.Core().Pods(d.Namespace).Delete(req.InstanceID, &metav1.DeleteOptions{})
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		err = nil
+	}
+	return nil
 }
 
 func int32Ptr(i int32) *int32 { return &i }

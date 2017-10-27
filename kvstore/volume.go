@@ -3,10 +3,14 @@ package kvstore
 import (
 	"fmt"
 	"path/filepath"
+	"time"
+
+	"github.com/Sirupsen/logrus"
 
 	"github.com/pkg/errors"
 
 	"github.com/rancher/longhorn-manager/types"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 const (
@@ -82,16 +86,28 @@ func (s *KVStore) CreateVolume(volume *types.VolumeInfo) error {
 	return nil
 }
 
-func (s *KVStore) UpdateVolume(volume *types.VolumeInfo) error {
+func (s *KVStore) UpdateVolume(volume *types.VolumeInfo) (err error) {
 	if err := s.checkVolume(volume); err != nil {
 		return err
 	}
-	index, err := s.b.Update(s.NewVolumeKeyFromName(volume.Name).Base(), volume, volume.KVIndex)
-	if err != nil {
-		return err
+
+	// UpdateVolume is very important so i try 5 times
+	var index uint64
+	i := 5
+	for i > 0 {
+		index, err = s.b.Update(s.NewVolumeKeyFromName(volume.Name).Base(), volume, volume.KVIndex)
+		if err == nil {
+			volume.KVIndex = index
+			break
+		}
+		if !apierrors.IsConflict(err) {
+			return err
+		}
+		i--
+		time.Sleep(200 * time.Microsecond)
+		logrus.Warnf("Conflit update %v times", 5-i)
 	}
-	volume.KVIndex = index
-	return nil
+	return err
 }
 
 func (s *KVStore) checkVolumeInstance(instance *types.InstanceInfo) error {
@@ -243,6 +259,13 @@ func (s *KVStore) getVolumeReplicasByKey(key string) (map[string]*types.ReplicaI
 }
 
 func (s *KVStore) DeleteVolumeController(volumeName string) error {
+	controller, err := s.GetVolumeController(volumeName)
+	if err != nil {
+		return err
+	}
+	if controller == nil {
+		return nil
+	}
 	if err := s.b.Delete(s.NewVolumeKeyFromName(volumeName).Controller()); err != nil {
 		return errors.Wrapf(err, "unable to delete controller of volume %v", volumeName)
 	}

@@ -42,6 +42,12 @@ func (m *VolumeManager) RegisterNode(port int) error {
 		NodeInfo: *currentInfo,
 		m:        m,
 	}
+
+	operator, err := NewOperator("", m.EventChan)
+	if err != nil {
+		return err
+	}
+	go operator.Run()
 	if err := m.rpc.StartServer(m.currentNode.GetManagerAddress(), m.EventChan); err != nil {
 		return err
 	}
@@ -144,13 +150,13 @@ func (n *Node) GetAPIAddress() string {
 }
 
 func (n *Node) Notify(volumeName string) error {
-	if err := n.m.rpc.NodeNotify(n.GetManagerAddress(),
-		&Event{
-			Type:       EventTypeNotify,
-			VolumeName: volumeName,
-		}); err != nil {
-		return err
-	}
+	// if err := n.m.rpc.NodeNotify(n.GetManagerAddress(),
+	// 	&Event{
+	// 		Type:       EventTypeNotify,
+	// 		VolumeName: volumeName,
+	// 	}); err != nil {
+	// 	return err
+	// }
 	return nil
 }
 

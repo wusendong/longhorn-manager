@@ -185,23 +185,37 @@ func (v *ManagedVolume) RefreshState() (err error) {
 	// all calls here must be idempotent
 	if v.State == types.VolumeStateCreated || v.State == types.VolumeStateDetached ||
 		v.State == types.VolumeStateFault || v.State == types.VolumeStateDeleted {
-		for name, replica := range v.Replicas {
-			if !replica.Running {
-				continue
-			}
-			if err := v.stopReplica(name); err != nil {
-				return err
-			}
-		}
+		// no need to stop replica in k8s
+		// for name, replica := range v.Replicas {
+		// 	if !replica.Running {
+		// 		continue
+		// 	}
+		// 	if err := v.stopReplica(name); err != nil {
+		// 		return err
+		// 	}
+		// }
 		if err := v.deleteController(); err != nil {
 			return err
 		}
-	}
 
-	if err := v.m.kv.UpdateVolume(&v.VolumeInfo); err != nil {
+	}
+	if err := v.checkDesireStateChange(); err != nil {
 		return err
 	}
-	return nil
+	return v.m.kv.UpdateVolume(&v.VolumeInfo)
+}
+
+func (v *ManagedVolume) checkDesireStateChange() error {
+	old, err := v.m.kv.GetVolume(v.VolumeInfo.Name)
+	if err != nil {
+		return errors.Wrapf(err, "")
+	}
+	if old.DesireState == v.VolumeInfo.DesireState {
+		return nil
+	}
+	logrus.Warnf("DesireState change, ignore update!")
+	v.m.EventChan <- Event{Type: EventTypeNotify, VolumeName: v.VolumeInfo.Name}
+	return errors.New("DesireState change, ignore update")
 }
 
 // syncWithEngineState() will return all bad replicas for the volume

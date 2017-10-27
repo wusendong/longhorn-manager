@@ -119,7 +119,7 @@ func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
 			if volume, err := ToVolume(obj); err != nil {
 				return 0, err
 			} else if _, err := s.vcli.Create(volume); err != nil {
-				return 0, err
+				return 0, errors.Wrapf(err, "create volume base failed : %#v", err)
 			}
 		} else if fields := volumeControllerrRegx.FindStringSubmatch(key); len(fields) > 1 {
 			// 2.3 /longhorn/volumes/vol1/instances/controller
@@ -137,7 +137,7 @@ func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
 			}
 			volume.Status.Controller = controllerinfo
 			if _, err := s.vcli.Update(volume); err != nil {
-				return 0, errors.Wrapf(err, "update controller failed")
+				return 0, errors.Wrapf(err, "create controller failed : %#v", err)
 			}
 		} else if fields := volumeReplicaRegx.FindStringSubmatch(key); len(fields) > 2 {
 			// 2.4 /longhorn/volumes/vol1/instances/replicas/{vol1}-replica-{7d3248ab-0f95-4454}
@@ -155,7 +155,7 @@ func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
 			}
 			volume.Status.Replicas = append(volume.Status.Replicas, replicainfo)
 			if _, err := s.vcli.Update(volume); err != nil {
-				return 0, errors.Wrapf(err, "update controller failed")
+				return 0, errors.Wrapf(err, "create replica failed : %#v", err)
 			}
 		}
 	} else if strings.HasPrefix(key, keyNodes) {
@@ -197,7 +197,7 @@ func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, 
 			}
 			volume.Spec.Volume = volumeinfo
 			if _, err := s.vcli.Update(volume); err != nil {
-				return 0, errors.Wrapf(err, "update controller failed")
+				return 0, errors.Wrapf(err, "update volume base failed : %#v", err)
 			}
 		} else if fields := volumeControllerrRegx.FindStringSubmatch(key); len(fields) > 1 {
 			// 2.3 /longhorn/volumes/vol1/instances/controller
@@ -215,8 +215,9 @@ func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, 
 			}
 			volume.Status.Controller = controllerinfo
 			if _, err := s.vcli.Update(volume); err != nil {
-				return 0, errors.Wrapf(err, "update controller failed")
+				return 0, errors.Wrapf(err, "update controller failed : %#v", err)
 			}
+
 		} else if fields := volumeReplicaRegx.FindStringSubmatch(key); len(fields) > 2 {
 			// 2.4 /longhorn/volumes/vol1/instances/replicas/{vol1}-replica-{7d3248ab-0f95-4454}
 			volumename := fields[1]
@@ -240,7 +241,7 @@ func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, 
 			}
 			volume.Status.Replicas = replicas
 			if _, err := s.vcli.Update(volume); err != nil {
-				return 0, errors.Wrapf(err, "update controller failed")
+				return 0, errors.Wrapf(err, "update replica failed : %#v", err)
 			}
 		}
 	} else if strings.HasPrefix(key, keyNodes) {
@@ -394,7 +395,12 @@ func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 			return nil, err
 		}
 		for _, node := range nodes.Items {
-			ret = append(ret, filepath.Join(s.prefix, keyNodes, node.GetName()))
+			for _, cond := range node.Status.Conditions {
+				if cond.Type == apiv1.NodeReady && cond.Status == apiv1.ConditionTrue {
+					ret = append(ret, filepath.Join(s.prefix, keyNodes, node.GetName()))
+					break
+				}
+			}
 		}
 	}
 	return ret, nil
