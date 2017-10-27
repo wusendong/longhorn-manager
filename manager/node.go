@@ -94,7 +94,7 @@ func (m *VolumeManager) GetRandomNode() (*Node, error) {
 	}
 	// map is random in Go
 	for _, n := range nodes {
-		if !util.TimestampAfterTimeout(n.LastCheckin, NodeCheckinMaximumGap) {
+		if util.TimestampAfterTimeout(n.LastCheckin, NodeCheckinMaximumGap) {
 			node = n
 			break
 		}

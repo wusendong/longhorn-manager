@@ -189,8 +189,10 @@ func (v *ManagedVolume) createController(startReplicas map[string]*types.Replica
 		urls = append(urls, engineapi.GetReplicaDefaultURL(replica.IP))
 	}
 	nodeID := v.m.orch.GetCurrentNode().ID
+	nodeName := v.m.orch.GetCurrentNode().Name
 	instance, err := v.m.orch.CreateController(&orchestrator.Request{
 		NodeID:       nodeID,
+		NodeName:     nodeName,
 		InstanceName: v.getControllerName(),
 		VolumeName:   v.Name,
 		VolumeSize:   v.Size,

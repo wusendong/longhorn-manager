@@ -20,6 +20,7 @@ import (
 	extensionsobj "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	apiv1 "k8s.io/client-go/pkg/api/v1"
 )
@@ -329,27 +330,42 @@ func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 		if !ok {
 			return 0, errors.Errorf("Mismatch type: %T", obj)
 		}
-		node, err := s.kcli.Core().Nodes().Get(nodeID, metav1.GetOptions{})
+
+		node, err := s.kcli.Core().Pods(s.namespace).Get(nodeID, metav1.GetOptions{})
 		if err != nil {
 			return 0, err
 		}
-		var ip string
-		for _, address := range node.Status.Addresses {
-			if address.Type == apiv1.NodeExternalIP {
-				ip = address.Address
-			}
-			if address.Type == apiv1.NodeInternalIP && ip == "" {
-				ip = address.Address
-			}
-		}
 		nodetmp := types.NodeInfo{
 			ID:               node.GetName(),
-			Name:             node.GetName(),
-			IP:               ip,
+			Name:             node.Spec.NodeName,
+			IP:               node.Status.PodIP,
 			ManagerPort:      9507,
 			OrchestratorPort: 9508,
 			State:            types.NodeStateUp,
+			LastCheckin:      util.Now(),
 		}
+
+		// node, err := s.kcli.Core().Nodes().Get(nodeID, metav1.GetOptions{})
+		// if err != nil {
+		// 	return 0, err
+		// }
+		// var ip string
+		// for _, address := range node.Status.Addresses {
+		// 	if address.Type == apiv1.NodeExternalIP {
+		// 		ip = address.Address
+		// 	}
+		// 	if address.Type == apiv1.NodeInternalIP && ip == "" {
+		// 		ip = address.Address
+		// 	}
+		// }
+		// nodetmp := types.NodeInfo{
+		// 	ID:               node.GetName(),
+		// 	Name:             node.GetName(),
+		// 	IP:               ip,
+		// 	ManagerPort:      9507,
+		// 	OrchestratorPort: 9508,
+		// 	State:            types.NodeStateUp,
+		// }
 		*nodeinfo = nodetmp
 	}
 
@@ -387,7 +403,9 @@ func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 			ret = append(ret, filepath.Join(s.prefix, keyVolumes, volumename, keyVolumeInstances, keyVolumeInstanceReplicas, replica.Name))
 		}
 	} else if prefix == keyNodes {
-		nodes, err := s.kcli.Core().Nodes().List(metav1.ListOptions{})
+		nodes, err := s.kcli.Core().Pods(s.namespace).List(metav1.ListOptions{LabelSelector: labels.SelectorFromSet(labels.Set(map[string]string{
+			"app": "longhorn-manager",
+		})).String()})
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				return nil, nil
@@ -396,7 +414,7 @@ func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 		}
 		for _, node := range nodes.Items {
 			for _, cond := range node.Status.Conditions {
-				if cond.Type == apiv1.NodeReady && cond.Status == apiv1.ConditionTrue {
+				if cond.Type == apiv1.PodReady && cond.Status == apiv1.ConditionTrue {
 					ret = append(ret, filepath.Join(s.prefix, keyNodes, node.GetName()))
 					break
 				}

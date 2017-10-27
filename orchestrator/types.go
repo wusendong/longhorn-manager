@@ -6,6 +6,7 @@ import (
 
 type Request struct {
 	NodeID       string
+	NodeName     string
 	InstanceID   string
 	InstanceName string
 

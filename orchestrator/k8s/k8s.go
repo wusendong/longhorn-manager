@@ -132,7 +132,7 @@ func (d *K8s) updateCurrentNode() error {
 
 	if nodename := os.Getenv("MY_NODE_NAME"); nodename != "" {
 		node.Name = nodename
-		node.ID = nodename
+		node.ID = os.Getenv("MY_POD_NAME")
 		d.currentNode = node
 		return nil
 	} else {
@@ -231,8 +231,9 @@ func (d *K8s) CreateController(req *orchestrator.Request) (instance *orchestrato
 					},
 				},
 			},
-			TerminationGracePeriodSeconds: int64Ptr(2),
+			TerminationGracePeriodSeconds: int64Ptr(5),
 			RestartPolicy:                 apiv1.RestartPolicyNever,
+			NodeSelector:                  map[string]string{"kubernetes.io/hostname": req.NodeName},
 		},
 	}
 
