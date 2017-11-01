@@ -409,7 +409,7 @@ func (s *CRDBackend) List(prefix string, obj interface{}) error {
 	prefix = s.trimPrefix(prefix)
 	// logrus.Debugf("- list key = [%v]", prefix)
 	if prefix == keyVolumes {
-		volumes, ok := obj.(*[]*lv1.Volume)
+		volumes, ok := obj.(*[]lv1.Volume)
 		if !ok {
 			return errors.Errorf("Mismatch type: %T", obj)
 		}
@@ -421,8 +421,7 @@ func (s *CRDBackend) List(prefix string, obj interface{}) error {
 			return err
 		}
 		for _, v := range vs.(*lv1.VolumeList).Items {
-			volume := v
-			*volumes = append(*volumes, &volume)
+			*volumes = append(*volumes, v)
 		}
 	}
 	return nil

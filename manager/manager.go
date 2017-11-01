@@ -7,6 +7,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 
+	lv1 "github.com/rancher/longhorn-manager/client/v1"
 	"github.com/rancher/longhorn-manager/engineapi"
 	"github.com/rancher/longhorn-manager/kvstore"
 	"github.com/rancher/longhorn-manager/orchestrator"
@@ -293,12 +294,16 @@ func (m *VolumeManager) VolumeList() (map[string]*types.VolumeInfo, error) {
 	return m.kv.ListVolumes()
 }
 
-func (m *VolumeManager) VolumeCRList() (map[string]*types.VolumeInfo, error) {
-	return m.kv.ListVolumes()
+func (m *VolumeManager) VolumeCRList() ([]*lv1.Volume, error) {
+	return m.kv.ListVolumeCRs()
 }
 
 func (m *VolumeManager) VolumeInfo(volumeName string) (*types.VolumeInfo, error) {
 	return m.kv.GetVolume(volumeName)
+}
+
+func (m *VolumeManager) VolumeCRInfo(volumeName string) (*lv1.Volume, error) {
+	return m.kv.GetVolumeCR(volumeName)
 }
 
 func (m *VolumeManager) VolumeControllerInfo(volumeName string) (*types.ControllerInfo, error) {

@@ -177,6 +177,16 @@ func (s *KVStore) GetVolume(id string) (*types.VolumeInfo, error) {
 	return volume, nil
 }
 
+func (s *KVStore) GetVolumeCR(id string) (*lv1.Volume, error) {
+	var volume *lv1.Volume
+	_, err := s.b.Get(s.NewVolumeKeyFromName(id).Base(), volume)
+	if err != nil {
+		return nil, errors.Wrapf(err, "unable to get volume %v", id)
+	}
+
+	return volume, nil
+}
+
 func (s *KVStore) getVolumeBaseByKey(key string) (*types.VolumeInfo, error) {
 	volume := types.VolumeInfo{}
 	index, err := s.b.Get(key, &volume)

@@ -11,6 +11,7 @@ import (
 	"github.com/rancher/go-rancher/client"
 
 	"github.com/rancher/longhorn-manager/manager"
+	"github.com/rancher/longhorn-manager/types"
 	"github.com/rancher/longhorn-manager/util"
 )
 
@@ -23,21 +24,18 @@ func (s *Server) VolumeList(rw http.ResponseWriter, req *http.Request) (err erro
 
 	resp := &client.GenericCollection{}
 
-	volumes, err := s.m.VolumeList()
+	volumes, err := s.m.VolumeCRList()
 	if err != nil {
 		return err
 	}
 
 	for _, v := range volumes {
-		controller, err := s.m.VolumeControllerInfo(v.Name)
-		if err != nil {
-			return err
+		volume := types.VolumeInfo{VolumeSpecInfo: *v.Spec.Volume, VolumeRunningInfo: *v.Status.Volume}
+		replicas := map[string]*types.ReplicaInfo{}
+		for _, replica := range v.Status.Replicas {
+			replicas[replica.Name] = replica
 		}
-		replicas, err := s.m.VolumeReplicaList(v.Name)
-		if err != nil {
-			return err
-		}
-		resp.Data = append(resp.Data, toVolumeResource(v, controller, replicas, apiContext))
+		resp.Data = append(resp.Data, toVolumeResource(&volume, v.Status.Controller, replicas, apiContext))
 	}
 	resp.ResourceType = "volume"
 	resp.CreateTypes = map[string]string{
@@ -56,25 +54,18 @@ func (s *Server) VolumeGet(rw http.ResponseWriter, req *http.Request) error {
 func (s *Server) responseWithVolume(rw http.ResponseWriter, req *http.Request, id string) error {
 	apiContext := api.GetApiContext(req)
 
-	v, err := s.m.VolumeInfo(id)
+	v, err := s.m.VolumeCRInfo(id)
 	if err != nil {
 		return errors.Wrap(err, "unable to get volume")
 	}
 
-	if v == nil {
-		rw.WriteHeader(http.StatusNotFound)
-		return nil
-	}
-	controller, err := s.m.VolumeControllerInfo(id)
-	if err != nil {
-		return err
-	}
-	replicas, err := s.m.VolumeReplicaList(id)
-	if err != nil {
-		return err
+	volume := types.VolumeInfo{VolumeSpecInfo: *v.Spec.Volume, VolumeRunningInfo: *v.Status.Volume}
+	replicas := map[string]*types.ReplicaInfo{}
+	for _, replica := range v.Status.Replicas {
+		replicas[replica.Name] = replica
 	}
 
-	apiContext.Write(toVolumeResource(v, controller, replicas, apiContext))
+	apiContext.Write(toVolumeResource(&volume, v.Status.Controller, replicas, apiContext))
 	return nil
 }
 
