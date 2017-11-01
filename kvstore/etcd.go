@@ -106,6 +106,10 @@ func (s *ETCDBackend) Keys(prefix string) ([]string, error) {
 	return ret, nil
 }
 
+func (s *ETCDBackend) List(prefix string, obj interface{}) error {
+	return errors.New("Unimplemented")
+}
+
 func (s *ETCDBackend) Delete(key string) error {
 	_, err := s.kapi.Delete(context.Background(), key, &eCli.DeleteOptions{
 		Recursive: true,

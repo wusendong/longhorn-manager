@@ -17,6 +17,12 @@ type KVMetadata struct {
 }
 
 type VolumeInfo struct {
+	VolumeSpecInfo
+	VolumeRunningInfo
+	KVMetadata
+}
+
+type VolumeSpecInfo struct {
 	// Attributes
 	Name                string
 	Size                int64 `json:",string"`
@@ -24,7 +30,9 @@ type VolumeInfo struct {
 	FromBackup          string
 	NumberOfReplicas    int
 	StaleReplicaTimeout int
+}
 
+type VolumeRunningInfo struct {
 	// Running spec
 	TargetNodeID  string
 	DesireState   VolumeState
@@ -35,8 +43,6 @@ type VolumeInfo struct {
 	NodeID   string
 	State    VolumeState
 	Endpoint string
-
-	KVMetadata
 }
 
 type RecurringJobType string

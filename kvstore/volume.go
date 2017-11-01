@@ -9,6 +9,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	lv1 "github.com/rancher/longhorn-manager/client/v1"
 	"github.com/rancher/longhorn-manager/types"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
@@ -301,6 +302,14 @@ func (s *KVStore) ListVolumes() (map[string]*types.VolumeInfo, error) {
 		if volume != nil {
 			volumes[volume.Name] = volume
 		}
+	}
+	return volumes, nil
+}
+
+func (s *KVStore) ListVolumeCRs() ([]*lv1.Volume, error) {
+	volumes := []*lv1.Volume{}
+	if err := s.b.List(s.key(keyVolumes), volumes); err != nil {
+		return nil, errors.Wrap(err, "unable to list volumes")
 	}
 	return volumes, nil
 }

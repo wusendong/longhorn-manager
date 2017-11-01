@@ -34,7 +34,7 @@ type VolumeSpec struct {
 	// Metadata Labels and Annotations gets propagated to the prometheus pods.
 	PodMetadata *metav1.ObjectMeta `json:"podMetadata,omitempty"`
 
-	Volume *types.VolumeInfo
+	Volume *types.VolumeSpecInfo
 }
 
 // A list of volumes.
@@ -52,6 +52,7 @@ type VolumeList struct {
 // Operator API itself. More info:
 // https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#spec-and-status
 type VolumeStatus struct {
+	Volume     *types.VolumeRunningInfo
 	Controller *types.ControllerInfo
 	Replicas   []*types.ReplicaInfo
 }

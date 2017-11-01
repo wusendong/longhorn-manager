@@ -1,8 +1,11 @@
-package manager
+package main
 
 import (
 	"fmt"
 	"log"
+	"path/filepath"
+	"reflect"
+	"test/util"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -10,19 +13,109 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/workqueue"
 
 	"github.com/pkg/errors"
 	lclient "github.com/rancher/longhorn-manager/client"
 	lv1 "github.com/rancher/longhorn-manager/client/v1"
-	"github.com/rancher/longhorn-manager/util"
-	extensionsobj "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
-	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	// "github.com/rancher/longhorn-manager/types"
+	// "github.com/rancher/longhorn-manager/util"
+	// "k8s.io/client-go/kubernetes"
+	// "k8s.io/client-go/tools/clientcmd"
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	// apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apiv1 "k8s.io/client-go/pkg/api/v1"
 )
+
+func main() {
+	config, err := clientcmd.BuildConfigFromFlags("", "/Users/dong/vagrant/k8s-playground/admin.conf")
+	if err != nil {
+		panic(err.Error())
+	}
+
+	kcli, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+	nodes, err := kcli.Core().Pods("default").List(metav1.ListOptions{LabelSelector: labels.SelectorFromSet(labels.Set(map[string]string{
+		"app": "longhorn-manager",
+	})).String()})
+	if err != nil {
+		panic(err)
+	}
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return
+		}
+		panic(err)
+	}
+	ret := []string{}
+	for _, node := range nodes.Items {
+		for _, cond := range node.Status.Conditions {
+			if cond.Type == apiv1.PodReady && cond.Status == apiv1.ConditionTrue {
+				ret = append(ret, filepath.Join("s.prefix, keyNodes", node.Spec.NodeName))
+				break
+			}
+		}
+	}
+
+	util.PrintJSON(ret)
+	// util.PrintJSON(nodes)
+
+	// lcli, err := lclient.NewForConfig(config)
+	// if err != nil {
+	// 	panic(err.Error())
+	// }
+	// crdclient, err := apiextensionsclient.NewForConfig(config)
+	// if err != nil {
+	// 	panic("instantiating apiextensions client failed")
+	// }
+
+	fmt.Println("watching")
+
+	// watcher, err := lcli.LonghornV1().Volumes("default").Watch(metav1.ListOptions{})
+	// if err != nil {
+	// 	panic(err.Error())
+	// }
+
+	// go func() {
+	// 	eventChan := watcher.ResultChan()
+	// 	for event := range eventChan {
+	// 		util.PrintJSON(event.Type)
+	// 	}
+	// 	fmt.Println("watcher stoped")
+	// }()
+
+	// lo, err := New(config)
+	// if err != nil {
+	// 	fmt.Fprint(os.Stderr, "instantiating alertmanager controller failed: ", err)
+	// 	return
+	// }
+	// ctx, cancel := context.WithCancel(context.Background())
+	// wg, ctx := errgroup.WithContext(ctx)
+	// wg.Go(func() error { return lo.Run(ctx.Done()) })
+	// term := make(chan os.Signal)
+	// signal.Notify(term, os.Interrupt, syscall.SIGTERM)
+
+	// select {
+	// case <-term:
+	// 	logrus.Info("Received SIGTERM, exiting gracefully...")
+	// case <-ctx.Done():
+	// }
+	// cancel()
+	// if err := wg.Wait(); err != nil {
+	// 	logrus.Info("Unhandled error received. Exiting...", "err", err)
+	// 	return
+	// }
+
+	fmt.Println("stoped")
+
+}
 
 type Operator struct {
 	kclient   kubernetes.Interface
@@ -34,22 +127,13 @@ type Operator struct {
 	ssetInf cache.SharedIndexInformer
 
 	queue workqueue.RateLimitingInterface
-
-	stopc chan struct{}
-
-	namespace string
-	eventChan chan Event
 }
 
 const (
 	resyncPeriod = 5 * time.Minute
 )
 
-func NewOperator(namespace string, eventChan chan Event) (*Operator, error) {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, errors.Wrap(err, "cannot connect to k8s, may be not in k8s cluster")
-	}
+func New(config *rest.Config) (*Operator, error) {
 
 	client, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -69,11 +153,7 @@ func NewOperator(namespace string, eventChan chan Event) (*Operator, error) {
 		kclient:   client,
 		lcli:      lcli,
 		crdclient: crdclient,
-
 		queue:     workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "alertmanager"),
-		eventChan: eventChan,
-		namespace: namespace,
-		stopc:     make(chan struct{}),
 	}
 	o.alrtInf = cache.NewSharedIndexInformer(
 		&cache.ListWatch{
@@ -92,7 +172,7 @@ func NewOperator(namespace string, eventChan chan Event) (*Operator, error) {
 }
 
 // Run the controller.
-func (c *Operator) Run() error {
+func (c *Operator) Run(stopc <-chan struct{}) error {
 	defer c.queue.ShutDown()
 
 	errChan := make(chan error)
@@ -117,16 +197,15 @@ func (c *Operator) Run() error {
 			return err
 		}
 		logrus.Info("CRD API endpoints ready")
-	case <-c.stopc:
+	case <-stopc:
 		return nil
 	}
 
 	go c.worker()
 
-	go c.alrtInf.Run(c.stopc)
+	go c.alrtInf.Run(stopc)
 
-	logrus.Info("longhorn operator ready")
-	<-c.stopc
+	<-stopc
 	return nil
 }
 
@@ -160,13 +239,13 @@ func (c *Operator) sync(key string) error {
 		return err
 	}
 	if !exists {
-		return nil
+		util.PrintJSON("exists")
 	}
-	v, ok := obj.(*lv1.Volume)
-	if !ok {
-		return errors.Errorf("Miss match type :%T", obj)
-	}
-	c.eventChan <- Event{EventTypeNotify, v.GetName()}
+	util.PrintJSON(obj)
+	return nil
+}
+
+func (c *Operator) createCRDs() error {
 	return nil
 }
 
@@ -217,18 +296,10 @@ func (c *Operator) handleVolumeDelete(obj interface{}) {
 }
 
 func (c *Operator) handleVolumeUpdate(old, cur interface{}) {
-	ol, ok := old.(*lv1.Volume)
-	if !ok {
+	if reflect.DeepEqual(old, cur) {
+		fmt.Println("----- equal!")
 		return
 	}
-	cu, ok := cur.(*lv1.Volume)
-	if !ok {
-		return
-	}
-	if volumestateequal(ol, cu) {
-		return
-	}
-
 	key, ok := c.keyFunc(cur)
 	if !ok {
 		return
@@ -236,42 +307,4 @@ func (c *Operator) handleVolumeUpdate(old, cur interface{}) {
 
 	logrus.Info("Volume updated", "key", key)
 	c.enqueue(key)
-}
-
-func volumestateequal(old, cur *lv1.Volume) bool {
-	if old.Status.Volume.DesireState != cur.Status.Volume.DesireState {
-		return false
-	}
-	if old.Status == cur.Status {
-		return true
-	}
-	return true
-}
-
-func (c *Operator) createCRDs() error {
-	listFuncs := []func(opts metav1.ListOptions) (runtime.Object, error){
-		c.lcli.LonghornV1().Settings(c.namespace).List,
-		c.lcli.LonghornV1().Volumes(c.namespace).List,
-	}
-	exists, err := util.CrdExists(listFuncs...)
-	if err == nil && exists {
-		return nil
-	}
-
-	crds := []*extensionsobj.CustomResourceDefinition{
-		lv1.NewLonghornSettingCustomResourceDefinition(lv1.GetLonghornLables()),
-		lv1.NewLonghornVolumeCustomResourceDefinition(lv1.GetLonghornLables()),
-	}
-
-	for _, crd := range crds {
-		if _, err = c.crdclient.ApiextensionsV1beta1().CustomResourceDefinitions().Create(crd); err != nil && !apierrors.IsAlreadyExists(err) {
-			return errors.Wrapf(err, "Creating CRD: %s", crd.Spec.Names.Kind)
-		}
-	}
-
-	return util.WaitForCRDReady(listFuncs...)
-}
-
-func (c *Operator) ShutDown() {
-	close(c.stopc)
 }

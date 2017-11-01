@@ -17,6 +17,7 @@ type Backend interface {
 	Get(key string, obj interface{}) (uint64, error)
 	Delete(key string) error
 	Keys(prefix string) ([]string, error)
+	List(prefix string, obj interface{}) error
 	IsNotFoundError(err error) bool
 }
 

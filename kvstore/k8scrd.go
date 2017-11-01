@@ -104,7 +104,7 @@ var (
 
 func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
 	key = s.trimPrefix(key)
-	logrus.Debugf("- create key = [%v]", key)
+	// logrus.Debugf("- create key = [%v]", key)
 
 	if key == keySettings {
 		// 1. settings
@@ -168,7 +168,7 @@ func (s *CRDBackend) Create(key string, obj interface{}) (uint64, error) {
 
 func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, error) {
 	key = s.trimPrefix(key)
-	logrus.Debugf("- update key = [%v]", key)
+	// logrus.Debugf("- update key = [%v]", key)
 	if key == keySettings {
 		// 1. settings
 		setting, err := s.lcli.LonghornV1().Settings(s.namespace).Get(keySettings, metav1.GetOptions{})
@@ -196,7 +196,8 @@ func (s *CRDBackend) Update(key string, obj interface{}, index uint64) (uint64, 
 			if err != nil {
 				return 0, err
 			}
-			volume.Spec.Volume = volumeinfo
+			volume.Spec.Volume = &volumeinfo.VolumeSpecInfo
+			volume.Status.Volume = &volumeinfo.VolumeRunningInfo
 			if _, err := s.vcli.Update(volume); err != nil {
 				return 0, errors.Wrapf(err, "update volume base failed : %#v", err)
 			}
@@ -257,7 +258,7 @@ func (s *CRDBackend) IsNotFoundError(err error) bool {
 
 func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 	key = s.trimPrefix(key)
-	logrus.Debugf("- get key = [%v]", key)
+	// logrus.Debugf("- get key = [%v]", key)
 	if key == keySettings {
 		// 1. settings
 		setting, err := s.lcli.LonghornV1().Settings(s.namespace).Get(keySettings, metav1.GetOptions{})
@@ -286,7 +287,8 @@ func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 				}
 				return 0, err
 			}
-			*volumeinfo = *volume.Spec.Volume
+			volumeinfo.VolumeSpecInfo = *volume.Spec.Volume
+			volumeinfo.VolumeRunningInfo = *volume.Status.Volume
 		} else if fields := volumeControllerrRegx.FindStringSubmatch(key); len(fields) > 1 {
 			// 2.3 /longhorn/volumes/vol1/instances/controller
 			volumename := fields[1]
@@ -345,27 +347,6 @@ func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 			LastCheckin:      util.Now(),
 		}
 
-		// node, err := s.kcli.Core().Nodes().Get(nodeID, metav1.GetOptions{})
-		// if err != nil {
-		// 	return 0, err
-		// }
-		// var ip string
-		// for _, address := range node.Status.Addresses {
-		// 	if address.Type == apiv1.NodeExternalIP {
-		// 		ip = address.Address
-		// 	}
-		// 	if address.Type == apiv1.NodeInternalIP && ip == "" {
-		// 		ip = address.Address
-		// 	}
-		// }
-		// nodetmp := types.NodeInfo{
-		// 	ID:               node.GetName(),
-		// 	Name:             node.GetName(),
-		// 	IP:               ip,
-		// 	ManagerPort:      9507,
-		// 	OrchestratorPort: 9508,
-		// 	State:            types.NodeStateUp,
-		// }
 		*nodeinfo = nodetmp
 	}
 
@@ -374,7 +355,7 @@ func (s *CRDBackend) Get(key string, obj interface{}) (uint64, error) {
 
 func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 	prefix = s.trimPrefix(prefix)
-	logrus.Debugf("- list key = [%v]", prefix)
+	// logrus.Debugf("- keys key = [%v]", prefix)
 	ret := []string{}
 	if prefix == keyVolumes {
 		vs, err := s.vcli.List(metav1.ListOptions{})
@@ -424,9 +405,32 @@ func (s *CRDBackend) Keys(prefix string) ([]string, error) {
 	return ret, nil
 }
 
+func (s *CRDBackend) List(prefix string, obj interface{}) error {
+	prefix = s.trimPrefix(prefix)
+	// logrus.Debugf("- list key = [%v]", prefix)
+	if prefix == keyVolumes {
+		volumes, ok := obj.(*[]*lv1.Volume)
+		if !ok {
+			return errors.Errorf("Mismatch type: %T", obj)
+		}
+		vs, err := s.vcli.List(metav1.ListOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		for _, v := range vs.(*lv1.VolumeList).Items {
+			volume := v
+			*volumes = append(*volumes, &volume)
+		}
+	}
+	return nil
+}
+
 func (s *CRDBackend) Delete(key string) error {
 	key = s.trimPrefix(key)
-	logrus.Debugf("- delete key = [%v]", key)
+	// logrus.Debugf("- delete key = [%v]", key)
 	if fields := volumeRegx.FindStringSubmatch(key); len(fields) > 1 {
 		volumename := fields[1]
 		if err := s.vcli.Delete(volumename, &metav1.DeleteOptions{}); err != nil {

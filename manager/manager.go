@@ -76,17 +76,20 @@ func (m *VolumeManager) VolumeCreate(request *VolumeCreateRequest) (err error) {
 		return err
 	}
 	info := &types.VolumeInfo{
-		Name:                request.Name,
-		Size:                size,
-		BaseImage:           request.BaseImage,
-		FromBackup:          request.FromBackup,
-		NumberOfReplicas:    request.NumberOfReplicas,
-		StaleReplicaTimeout: request.StaleReplicaTimeout,
-
-		Created:      util.Now(),
-		TargetNodeID: node.ID,
-		State:        types.VolumeStateCreated,
-		DesireState:  types.VolumeStateDetached,
+		VolumeSpecInfo: types.VolumeSpecInfo{
+			Name:                request.Name,
+			Size:                size,
+			BaseImage:           request.BaseImage,
+			FromBackup:          request.FromBackup,
+			NumberOfReplicas:    request.NumberOfReplicas,
+			StaleReplicaTimeout: request.StaleReplicaTimeout,
+		},
+		VolumeRunningInfo: types.VolumeRunningInfo{
+			Created:      util.Now(),
+			TargetNodeID: node.ID,
+			State:        types.VolumeStateCreated,
+			DesireState:  types.VolumeStateDetached,
+		},
 	}
 	if err := m.NewVolume(info); err != nil {
 		return err
@@ -287,6 +290,10 @@ func (m *VolumeManager) Shutdown() {
 }
 
 func (m *VolumeManager) VolumeList() (map[string]*types.VolumeInfo, error) {
+	return m.kv.ListVolumes()
+}
+
+func (m *VolumeManager) VolumeCRList() (map[string]*types.VolumeInfo, error) {
 	return m.kv.ListVolumes()
 }
 

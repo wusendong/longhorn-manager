@@ -33,8 +33,10 @@ func ToVolume(obj interface{}) (*lv1.Volume, error) {
 			Name: volume.Name,
 		},
 		Spec: lv1.VolumeSpec{
-			Volume: volume,
+			Volume: &volume.VolumeSpecInfo,
 		},
-		Status: &lv1.VolumeStatus{},
+		Status: &lv1.VolumeStatus{
+			Volume: &volume.VolumeRunningInfo,
+		},
 	}, nil
 }
